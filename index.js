@@ -6,8 +6,9 @@ import { teach, listMemories, forgetMemory, addExperienceRecord, recordSkill, li
 import { dataLocation, paths, readExperiences, readJournal } from "./core/store.js";
 import { startLiquidCursor, stopLiquidCursor, liquidPrompt } from "./core/cursor.js";
 import { demoBrain } from "./core/brain.js";
-import { listTemplates, runTemplateDemo, demoSummary, buildBrainFromTemplate, saveBrain, loadBrain, brainSummary, transferSavedBrain, listSavedBrains, restBrain } from "./core/fly.js";
+import { listAllTemplates, runTemplateDemo, demoSummary, buildBrainFromTemplate, saveBrain, loadBrain, brainSummary, transferSavedBrain, listSavedBrains, restBrain } from "./core/fly.js";
 import { KINDNESS_RULES, kindnessCharterText, checkKindness } from "./core/kindness.js";
+import { demoWorm, demoWormTransfer, wormDemoSummary } from "./core/worm.js";
 
 const CONFIG_PATH = new URL("./config.json", import.meta.url);
 let config;
@@ -51,7 +52,7 @@ ${magenta}BRAIN v0.1 — tiny spiking neurons, not the LLM${reset}
   /brain                     Run the pink + puppy -> happy demo, print before/after
   /brain <name>              Run a saved brain's demo (see /newbrain)
 ${magenta}FLY BRAIN v0.2 — reverse-engineered fruit fly templates${reset}
-  /fly                       List the 5 fly templates and their jobs
+  /fly                       List the 5 fly templates + worm, and their jobs
   /fly <name>                Run that template's demo, print before/after
   /fly transfer              Transfer demo: a new smell learned faster
                              from an old skill (fresh vs transferred)
@@ -60,6 +61,13 @@ ${magenta}FLY BRAIN v0.2 — reverse-engineered fruit fly templates${reset}
   /transfer <saved-brain> mushroom-body <new-name>
                              Transfer a saved trained brain to a new brain
                              for a new smell (smell-c), save it, print rounds
+${magenta}WORM BRAIN v0.3 — OpenWorm, simplified C. elegans${reset}
+  /worm                      Run the worm demo: learning numbers + grid crawl
+  /worm transfer             A trained worm learns a new smell in fewer rounds
+  /newbrain worm <name>      Save a toy worm brain (54 neurons)
+                             /fly and /template list show it with the 5 flies
+  /transfer <saved-brain> worm <new-name>
+                             Reuse a worm's smell skill in a new worm brain
 ${magenta}KINDNESS — Runefold is kind to every brain it uses${reset}
   /kind                      Print the kindness charter + core values,
                              and list the brains Runefold has made +
@@ -140,8 +148,11 @@ async function command(line) {
           const summary = brainSummary(saved, arg);
           console.log(`\n${magenta}Saved brain "${arg}"${reset} — template ${summary.template}, ${summary.neurons} neurons, ${summary.connections} connections`);
           console.log(`Inputs: ${summary.inputs.join(", ")} | Outputs: ${summary.outputs.join(", ")}`);
-          const result = runTemplateDemo(saved.template, saved);
-          for (const line of demoSummary(result)) console.log(`  ${line}`);
+          // v0.3: a saved worm uses the worm demo; fly brains are unchanged.
+          const isWorm = saved.template === "worm";
+          const result = isWorm ? demoWorm(saved) : runTemplateDemo(saved.template, saved);
+          const lines = isWorm ? wormDemoSummary(result) : demoSummary(result);
+          for (const line of lines) console.log(`  ${line}`);
           console.log(`${dim}The demo runs on the loaded brain in memory; your saved brain on disk is not changed by it.${reset}\n`);
         } catch (e) { console.log(`Cannot run that brain: ${e.message}`); }
         return true;
@@ -157,12 +168,20 @@ async function command(line) {
     }
     case "/fly": {
       // /fly lists templates; /fly <name> runs that template's demo.
+      // v0.3: the list now includes the worm; fly demos are unchanged.
       if (!arg) {
-        console.log(`\n${magenta}Fly brain templates — reverse-engineered from the fruit fly (FlyWire 2024)${reset}`);
-        for (const t of listTemplates()) {
+        console.log(`\n${magenta}Brain templates — 5 fly modules + OpenWorm${reset}`);
+        for (const t of listAllTemplates()) {
           console.log(`  ${t.name} (${t.neurons} neurons) — ${t.job}${t.learnable ? " [learnable]" : ""}`);
         }
-        console.log(`${dim}Try: /fly mushroom-body   or   /fly transfer   or   /newbrain mushroom-body my-first-fly-brain${reset}\n`);
+        console.log(`${dim}Try: /fly mushroom-body   or   /fly worm   or   /fly transfer   or   /newbrain worm my-worm${reset}\n`);
+        return true;
+      }
+      if (arg === "worm" || arg === "worm-transfer") {
+        const result = arg === "worm" ? demoWorm() : demoWormTransfer();
+        console.log(`\n${magenta}Worm template: ${result.template} — ${result.job}${reset}`);
+        for (const line of wormDemoSummary(result)) console.log(`  ${line}`);
+        console.log(`${dim}Toy scale, simplified from C. elegans — see README "Brain v0.3".${reset}\n`);
         return true;
       }
       try {
@@ -175,11 +194,22 @@ async function command(line) {
     }
     case "/template": {
       if (arg && arg !== "list") { console.log("Usage: /template list"); return true; }
-      console.log(`\n${magenta}Fly brain templates${reset}`);
-      for (const t of listTemplates()) {
+      console.log(`\n${magenta}Brain templates — 5 fly modules + OpenWorm${reset}`);
+      for (const t of listAllTemplates()) {
         console.log(`  ${t.name} (${t.neurons} neurons) — ${t.job}${t.learnable ? " [learnable]" : ""}`);
       }
       console.log("");
+      return true;
+    }
+    case "/worm": {
+      // v0.3: the whole toy worm — learning numbers and a grid-world crawl.
+      // No Ollama needed. The build inside demoWorm() goes through the
+      // existing kindness gate in core/fly.js -> core/kindness.js.
+      if (arg && arg !== "transfer") { console.log("Usage: /worm  or  /worm transfer"); return true; }
+      const result = arg === "transfer" ? demoWormTransfer() : demoWorm();
+      console.log(`\n${magenta}Worm brain v0.3: ${result.template} — ${result.job}${reset}`);
+      for (const line of wormDemoSummary(result)) console.log(`  ${line}`);
+      console.log(`${dim}C. elegans, toy scale — not a living worm, not AGI. See README "Brain v0.3".${reset}\n`);
       return true;
     }
     case "/newbrain": {
@@ -233,7 +263,7 @@ async function command(line) {
     }
     case "/transfer": {
       const parts = arg.split(/\s+/).filter(Boolean);
-      if (parts.length < 3) { console.log("Usage: /transfer <saved-brain> mushroom-body <new-name>  e.g. /transfer my-smell-brain mushroom-body my-new-smell-brain"); return true; }
+      if (parts.length < 3) { console.log("Usage: /transfer <saved-brain> mushroom-body|worm <new-name>  e.g. /transfer my-worm worm my-new-worm"); return true; }
       const [sourceName, newTemplate, newName] = parts;
       try {
         const r = transferSavedBrain(sourceName, newTemplate, newName);

@@ -397,3 +397,239 @@ move smoothly there → idle animation → decide again.
 Modes: wander, curious, thinking, excited, sleeping, idle.
 Your mouse is an input, not a leash: get close and curiosity rises,
 click it and it gets excited, ignore it and boredom rises.
+
+## Runefold Brain v0.3 — OpenWorm (a whole C. elegans, toy scale)
+
+**What OpenWorm is.** OpenWorm (openworm.org) is an open-source, MIT-licensed
+project to simulate the whole soil roundworm *Caenorhabditis elegans* from
+its wiring diagram. *C. elegans* is about 1 mm long and was the FIRST animal
+to have its complete connectome published — White, Southgate, Thomson &
+Brenner, 1986: **302 neurons and roughly 5,000 chemical synapses**. We do not
+download or run OpenWorm's dataset here (it is a research project, not a
+terminal demo). As with the v0.2 fly, v0.3 copies the **circuit designs** at
+toy scale, using Runefold's ONE neuron model from `core/brain.js`
+(`createNetwork()` — leaky integrate-and-fire spikes + STDP) and the ONE
+template/save/transfer system in `core/fly.js`. There is no second neuron
+model, no second kindness gate, and no living worm.
+
+**What the simplified worm keeps.** A single template named `worm` with
+**54 neurons** (101 starting connections):
+
+- **Senses:** AWA/AWB-style smell inputs (`smell-a` = food, `smell-b` = bad),
+  ALM/PLM-style touch (`touch`, `wall-touch`), and AFD-style temperature
+  (`temp`). Real worm behaviour is copied: gentle body touch makes it crawl
+  forward; a bump near the head makes it turn.
+- **Command interneurons:** `ava`/`avd` for backward crawl and `avb`/`pvb`
+  for forward crawl — these are the real worm command neuron names.
+- **Motor:** VA/VB/DA/DB-style motor neurons drive `crawl-forward`,
+  `crawl-backward`, `turn-dorsal` and `turn-ventral`, which alternately
+  contract `muscle-dorsal` and `muscle-ventral` — a worm-style undulating
+  crawl, not a fly's six legs.
+- **Learning:** a small associative module using the v0.2 mushroom-body
+  pattern (20 sparse Kenyon-style cells, reward/avoid teacher links marked
+  `fixed`). This is an honest analogy: *C. elegans* has no fly mushroom
+  body; real worm smell learning lives in cells such as AWA/AIA with
+  dopamine/serotonin modulation. It lets us reuse the EXACT v0.2 training
+  and transfer code instead of inventing a second learning system.
+
+**What it leaves out:** most of the 302 neurons (54 cells is a toy, not a
+one-to-one subset), gap junctions, detailed ionic currents, continuous time,
+neuromodulators, muscle physics, and a real body.
+54 neurons is toy scale: it runs instantly on a laptop, keeps the same
+circuit decisions, and stays deterministic (no randomness), so tests and
+demos print identical numbers every run. A transfer adds 5 temporary
+neurons (one new smell + 4 Kenyon cells), still far under 120.
+
+**Kindness.** Building or running a worm goes through the SAME
+`checkKindness()` gate as every fly brain: `buildWormBrain()` calls fly's
+`buildBrainFromTemplate("worm")`, which calls `assertKindTemplate()` before
+any neuron is created. A harmful worm job is refused kindly, and Runefold's
+core values (rejecting transphobia and racism) are unchanged.
+
+### Commands
+
+```
+/worm                                   Learning before/after + grid-world crawl
+/worm transfer                          New smell learned faster from an old skill
+/fly worm                               Same worm demo through the fly command
+/fly  or  /template list                Lists the 5 fly templates + worm
+/newbrain worm <name>                   Save a worm via the existing template system
+/brain <name>                           Run a saved worm's demo
+/transfer <saved-brain> worm <new-name> Reuse a trained worm's smell skill
+```
+
+No Ollama is needed for any of these. A fresh `/newbrain worm` is untrained;
+to see transfer's speed-up, train a source first (`trainWormSmells()` in
+`core/worm.js`, saved with fly's `saveBrain()`), then `/transfer` it.
+
+### Measured numbers (observed, not faked)
+
+- Food smell -> approach: **0/20 before, 20/20 after** 12 training rounds.
+- Bad smell -> avoid: **0/20 before, 20/20 after**; wrong pairing
+  (food smell -> avoid) **0/10**.
+- `kc-a-01 -> approach` weight: **0.08 -> 0.38**.
+- Grid world: food smell ahead -> `crawl-forward`, reaches food in **4 steps**
+  from (2,3); bad smell ahead -> `crawl-backward` (moves away); wall ahead
+  -> `turn-dorsal` (E -> N) with no step into the wall. Forward crawl
+  contracts dorsal then ventral muscle, in that order.
+- Worm transfer: fresh worm needs **7 rounds** to learn smell-c -> approach;
+  transferred worm needs **3 rounds** (**4 saved**), and still remembers
+  smell-a -> approach at rate **1.0**.
+
+### Full terminal session (real output observed)
+
+Commands were piped into `node index.js`; ANSI colour codes were stripped
+for this README. `demo-trained-worm` was a worm trained and saved before
+the session, so `/transfer` below shows the real speed-up.
+
+```
+
+╭────────────────────────────────────────────────────╮
+│  R U N E F O L D   A I   //   ADAPTIVE CORE 0.6.1  │
+│  MEMORY  ◈  RETRIEVAL  ◈  PLAN  ◈  CRITIC  ◈  TOOLS  │
+╰────────────────────────────────────────────────────╯
+Local-first terminal assistant • type /help for commands • /think uses plan + critic
+Memory store: /home/scarletborrowedthis/.runefold
+
+🫧 runefold ❯ 
+LEARNING
+  /teach <text>              Teach a fact / instruction
+  /memory                    List memories (with confidence)
+  /forget <id or phrase>     Delete matching memories
+  /consolidate               Sleep step: decay old low-confidence memories, merge duplicates
+  /feedback                  Record success / failure / correction
+  /experience                Show recent experiences
+  /skill <name> | <steps>    Save a reusable skill
+  /skills                    List skills
+  /goal <text> | <step1; step2>   Set a goal with steps
+  /goals                     List goals
+  /search <query>            Show what retrieval actually finds (with scores)
+  /journal                   Show recent journal entries
+THINKING
+  /plan <task>               Plan only — break it into testable steps
+  /think <task>              Plan + answer + self-critic + one revision
+  /read <file>               Safe read of a file in this project
+  /find <text>               Safe search across project files
+  /run <command>             Only allow-listed checks, e.g. node --test test.js
+CODEFORGE v0.1 — writes ask first, backup to .bak
+  /write <file>              Paste new content (end with END), preview, confirm
+  /edit <file> | <old> | <new>   Replace one exact match, preview, confirm
+BRAIN v0.1 — tiny spiking neurons, not the LLM
+  /brain                     Run the pink + puppy -> happy demo, print before/after
+  /brain <name>              Run a saved brain's demo (see /newbrain)
+FLY BRAIN v0.2 — reverse-engineered fruit fly templates
+  /fly                       List the 5 fly templates + worm, and their jobs
+  /fly <name>                Run that template's demo, print before/after
+  /fly transfer              Transfer demo: a new smell learned faster
+                             from an old skill (fresh vs transferred)
+  /template list             Same list as /fly
+  /newbrain <template> <name>   Make a new brain from a template and save it
+  /transfer <saved-brain> mushroom-body <new-name>
+                             Transfer a saved trained brain to a new brain
+                             for a new smell (smell-c), save it, print rounds
+WORM BRAIN v0.3 — OpenWorm, simplified C. elegans
+  /worm                      Run the worm demo: learning numbers + grid crawl
+  /worm transfer             A trained worm learns a new smell in fewer rounds
+  /newbrain worm <name>      Save a toy worm brain (54 neurons)
+                             /fly and /template list show it with the 5 flies
+  /transfer <saved-brain> worm <new-name>
+                             Reuse a worm's smell skill in a new worm brain
+KINDNESS — Runefold is kind to every brain it uses
+  /kind                      Print the kindness charter + core values,
+                             and list the brains Runefold has made +
+                             whether they rested
+  /kind <job...>             Check a job against the charter — Runefold
+                             refuses transphobic, racist, or harmful jobs
+  /kind rest <name>          Thank a saved brain and rest it (sleep)
+OTHER
+  /autolearn on|off  /status  /help  /exit
+Chat normally for a plain answer. Auto-learning only saves durable, non-sensitive statements.
+
+
+Brain templates — 5 fly modules + OpenWorm
+  mushroom-body (26 neurons) — Learn smell -> approach / avoid [learnable]
+  central-complex (11 neurons) — Hold a heading, correct drift
+  antennal-lobe (10 neurons) — Sort two similar smells apart
+  giant-fiber (10 neurons) — Fast escape from a looming shadow
+  ventral-nerve-cord (10 neurons) — Walk: alternating left / right steps
+  worm (54 neurons) — Crawl toward food smells and away from bad smells, and turn at walls [learnable]
+Try: /fly mushroom-body   or   /fly worm   or   /fly transfer   or   /newbrain worm my-worm
+
+
+Brain templates — 5 fly modules + OpenWorm
+  mushroom-body (26 neurons) — Learn smell -> approach / avoid [learnable]
+  central-complex (11 neurons) — Hold a heading, correct drift
+  antennal-lobe (10 neurons) — Sort two similar smells apart
+  giant-fiber (10 neurons) — Fast escape from a looming shadow
+  ventral-nerve-cord (10 neurons) — Walk: alternating left / right steps
+  worm (54 neurons) — Crawl toward food smells and away from bad smells, and turn at walls [learnable]
+
+
+Worm brain v0.3: worm — Crawl toward food smells and away from bad smells, and turn at walls
+  food smell -> approach: 0/20 before training, 20/20 after
+  bad smell -> avoid: 0/20 before training, 20/20 after
+  wrong pairing (smell-a -> avoid): 0/10 — stays quiet, as it should
+  kc-a-01 -> approach weight: now 0.38
+  navigation: food ahead -> crawl-forward, reached food in 4 step(s) from (2,3)
+  navigation: bad smell ahead -> crawl-backward, ending at (6,3)
+  navigation: wall ahead -> turn-dorsal (E -> N), no step into the wall
+C. elegans, toy scale — not a living worm, not AGI. See README "Brain v0.3".
+
+
+Worm brain v0.3: worm-transfer — A worm learns a new smell faster by reusing an old skill
+  fresh worm: smell-c -> approach reached 80% after 7 training round(s) (rate 1)
+  transferred worm: smell-c -> approach reached 80% after 3 training round(s) (rate 1)
+  transferred worm still remembers smell-a -> approach: rate 1
+  rounds saved: 4 — the new smell reused the learned approach pathway
+C. elegans, toy scale — not a living worm, not AGI. See README "Brain v0.3".
+
+
+New brain "demo-worm" saved. Template: worm — Crawl toward food smells and away from bad smells, and turn at walls
+Neurons: 54 | Connections: 101
+Inputs: smell-a, smell-b, touch, temp, wall-touch, reward, punishment
+Outputs: approach, avoid, crawl-forward, crawl-backward, turn-dorsal, turn-ventral, muscle-dorsal, muscle-ventral
+Saved in your Runefold memory store (brains.json). Run it with /brain demo-worm or /fly worm.
+
+
+Saved brain "demo-worm" — template worm, 54 neurons, 101 connections
+Inputs: smell-a, smell-b, touch, temp, wall-touch, reward, punishment | Outputs: approach, avoid, crawl-forward, crawl-backward, turn-dorsal, turn-ventral, muscle-dorsal, muscle-ventral
+  food smell -> approach: 0/20 before training, 20/20 after
+  bad smell -> avoid: 0/20 before training, 20/20 after
+  wrong pairing (smell-a -> avoid): 0/10 — stays quiet, as it should
+  kc-a-01 -> approach weight: now 0.38
+  navigation: food ahead -> crawl-forward, reached food in 4 step(s) from (2,3)
+  navigation: bad smell ahead -> crawl-backward, ending at (6,3)
+  navigation: wall ahead -> turn-dorsal (E -> N), no step into the wall
+The demo runs on the loaded brain in memory; your saved brain on disk is not changed by it.
+
+
+Transferred "demo-trained-worm" -> new brain "demo-worm-2".
+Copied approach weight (halved, from the source brain): 0.19
+New smell-c -> approach before retraining: rate 0
+Training rounds to reach 80%: 3
+New smell-c -> approach after retraining: rate 1
+Saved as "demo-worm-2". The old skill was reused; only the new smell was retrained. Compare with a fresh brain: /fly transfer.
+
+
+Kind refusal: that job is about misgendering someone, and Runefold rejects transphobia. Runefold uses the names and pronouns people ask for, and it does not repeat claims that trans people are not who they say they are. A respectful alternative: use the name and pronouns the person asks for, and help anyone regardless of who they are or where they come from. Try /fly to see the kind jobs Runefold can do.
+
+
+Runefold session closed. Your saved learning remains on this computer.
+```
+
+### Honest limits
+
+This is a simplified toy, **not** a living worm, **not** OpenWorm's actual
+simulation, **not** AGI, and **not** a medical device or clinical tool. It
+does not train the Ollama/Qwen weights, and it makes no claim about animal
+consciousness or suffering. The kindness rule is a design choice: Runefold
+acts kindly toward model brains anyway, because the habit shapes what jobs
+it will and will not do. Long-term assistive neurotech (helping people talk
+or walk again) would need real research and clinicians, not this demo.
+
+Files: `core/worm.js` (new — template, navigation, demos, worm transfer),
+`core/fly.js` (small additions: template registration, listAllTemplates,
+`export` of the existing training/transfer helpers, worm accepted by
+`/transfer`), `index.js` (`/worm`, worm in `/fly`, `/template`, `/newbrain`,
+`/brain`, `/transfer`, help lines), `test.js` (33 tests: the original 26
+untouched + 7 new worm tests).

@@ -290,6 +290,22 @@ export const TEMPLATES = [
   },
 ];
 
+// Extra templates (v0.3: the worm) register here instead of being
+// hard-coded into the fly array. This keeps listTemplates() returning
+// exactly the original 5 fly modules, while /fly and /template list can
+// show everything via listAllTemplates(), and the existing template
+// machinery (build/save/load/transfer) accepts a registered template
+// unchanged. No second template system was added.
+const EXTRA_TEMPLATES = [];
+export function registerTemplate(template) {
+  if (!template || !template.name) throw new Error("A template needs a name.");
+  if ([...TEMPLATES, ...EXTRA_TEMPLATES].some((t) => t.name === template.name)) {
+    throw new Error(`Template already registered: ${template.name}`);
+  }
+  EXTRA_TEMPLATES.push(template);
+  return template;
+}
+
 export function listTemplates() {
   return TEMPLATES.map((t) => ({
     name: t.name,
@@ -301,8 +317,20 @@ export function listTemplates() {
   }));
 }
 
+// Everything the terminal can build: the 5 fly modules + v0.3's worm.
+export function listAllTemplates() {
+  return [...TEMPLATES, ...EXTRA_TEMPLATES].map((t) => ({
+    name: t.name,
+    job: t.job,
+    neurons: t.neurons.length,
+    inputs: [...t.inputs],
+    outputs: [...t.outputs],
+    learnable: t.learnable,
+  }));
+}
+
 export function getTemplate(name) {
-  const t = TEMPLATES.find((x) => x.name === name);
+  const t = [...TEMPLATES, ...EXTRA_TEMPLATES].find((x) => x.name === name);
   if (!t) throw new Error(`Unknown fly template: ${name}. Try /fly to list them.`);
   return t;
 }
@@ -348,7 +376,7 @@ export function buildBrainFromTemplate(name) {
 // the last lesson has faded before the next one starts. It also protects
 // the links it used, the same way brain.train() does.
 // ---------------------------------------------------------------------------
-function trainAssociation(brain, inputNames, outputName, rounds = 12) {
+export function trainAssociation(brain, inputNames, outputName, rounds = 12) {
   const outId = brain.idOf(outputName);
   const inputIds = new Set(inputNames.map((n) => brain.idOf(n)));
   const hiddenIds = new Set(
@@ -667,7 +695,7 @@ export function brainSummary(brain, name) {
 //      start at the usual 0.08 — is the control, trained the same way.
 // ---------------------------------------------------------------------------
 
-export function buildTransferBrain(sourceBrain, newName) {
+export function buildTransferBrain(sourceBrain, newName, templateName = "mushroom-body") {
   if (!sourceBrain || typeof sourceBrain.getState !== "function") {
     throw new Error("buildTransferBrain needs a trained mushroom-body brain as its source.");
   }
@@ -685,7 +713,9 @@ export function buildTransferBrain(sourceBrain, newName) {
   const copiedApproach = Math.max(0.08, Number((avgWeight("kc-a", "approach") * 0.5).toFixed(3)));
   const copiedAvoid = Math.max(0.08, Number((avgWeight("kc-a", "avoid") * 0.5).toFixed(3)));
 
-  const template = getTemplate("mushroom-body");
+  // v0.3: the SAME mechanism can start a new worm brain from a trained
+  // worm source. Default is unchanged: a mushroom-body brain.
+  const template = getTemplate(templateName);
   const neurons = [
     ...template.neurons,
     { name: "smell-c", layer: "input" },
@@ -707,8 +737,8 @@ export function buildTransferBrain(sourceBrain, newName) {
   const layers = {};
   for (const n of neurons) layers[n.name] = n.layer;
   const brain = createNetwork(neurons.map((n) => n.name), connections, { layers });
-  brain.template = "mushroom-body";
-  brain.transferSource = sourceBrain.savedName || "trained mushroom-body";
+  brain.template = templateName;
+  brain.transferSource = sourceBrain.savedName || `trained ${templateName}`;
   brain.transferCopiedApproach = copiedApproach;
   brain.transferCopiedAvoid = copiedAvoid;
   if (newName) brain.savedName = newName;
@@ -718,7 +748,7 @@ export function buildTransferBrain(sourceBrain, newName) {
 // Count training rounds until smell-c -> approach reaches 80% (rate
 // >= 0.8 over 10 trials), one round at a time, max 20 rounds.
 // Returns { rounds, rate } — rounds is 0 if it already passes.
-function roundsToLearn(brain, maxRounds = 20) {
+export function roundsToLearn(brain, maxRounds = 20) {
   for (let rounds = 0; rounds <= maxRounds; rounds++) {
     const rate = brain.measure(["smell-c"], "approach", 10).rate;
     if (rate >= 0.8) return { rounds, rate };
@@ -756,13 +786,16 @@ export function demoTransfer() {
   };
 }
 
-// /transfer <source-brain> mushroom-body <new-name>: load a SAVED trained
+// /transfer <source-brain> <template> <new-name>: load a SAVED trained
 // brain, transfer it to a new brain, save the new brain, and report the
-// numbers. The new template must be mushroom-body — transfer is only
-// implemented for the mushroom body, because that is the learning module.
+// numbers. Transfer is only for LEARNING modules: mushroom-body (v0.2)
+// and worm (v0.3, its learning part uses the same Kenyon-cell pattern).
+// The other fly templates are hardwired circuits and cannot be sources
+// or targets.
 export function transferSavedBrain(sourceName, newTemplate, newName) {
-  if (newTemplate !== "mushroom-body") {
-    throw new Error(`Transfer is only built for mushroom-body, not ${newTemplate}. The mushroom body is the learning module; the other templates are hardwired circuits.`);
+  const learnableTemplates = ["mushroom-body", "worm"];
+  if (!learnableTemplates.includes(newTemplate)) {
+    throw new Error(`Transfer is only built for learning templates (${learnableTemplates.join(", ")}), not ${newTemplate}. The other templates are hardwired circuits.`);
   }
   // Kindness check first: transferring a skill is only kind if the new
   // job is kind. "Learn a new smell -> approach" passes; a harmful
@@ -770,18 +803,18 @@ export function transferSavedBrain(sourceName, newTemplate, newName) {
   const check = checkKindness("learn a new smell (smell-c) -> approach, to help someone");
   if (!check.ok) throw new Error(check.reason);
   const source = loadBrain(sourceName);
-  if (source.template !== "mushroom-body") {
-    throw new Error(`Cannot transfer from ${sourceName}: it is a ${source.template} brain, and transfer needs a mushroom-body brain.`);
+  if (!learnableTemplates.includes(source.template)) {
+    throw new Error(`Cannot transfer from ${sourceName}: it is a ${source.template} brain, and transfer needs a learning template (${learnableTemplates.join(" or ")}).`);
   }
-  const transferred = buildTransferBrain(source, newName);
+  const transferred = buildTransferBrain(source, newName, newTemplate);
   const before = transferred.measure(["smell-c"], "approach", 10);
   const learned = roundsToLearn(transferred);
   const after = transferred.measure(["smell-c"], "approach", 10);
-  saveBrain(newName, "mushroom-body", transferred);
+  saveBrain(newName, newTemplate, transferred);
   return {
     source: sourceName,
     newName,
-    template: "mushroom-body",
+    template: newTemplate,
     copiedApproachWeight: transferred.transferCopiedApproach,
     beforeRate: before.rate,
     roundsToLearn: learned.rounds,

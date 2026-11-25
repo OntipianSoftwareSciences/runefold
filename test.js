@@ -7,7 +7,8 @@ import { tokenize, search } from "./core/retrieval.js";
 import { teach, forgetMemory, listMemories, consolidate, addGoal } from "./core/learning.js";
 import { writeFile, editFile, runAllowed } from "./core/tools.js";
 import { createBrain, demoBrain } from "./core/brain.js";
-import { listTemplates, getTemplate, buildBrainFromTemplate, demoMushroomBody, demoCentralComplex, demoAntennalLobe, demoGiantFiber, demoVentralNerveCord, demoTransfer, buildTransferBrain, saveBrain, loadBrain, assertKindTemplate, restBrain, listSavedBrains } from "./core/fly.js";
+import { listTemplates, listAllTemplates, getTemplate, buildBrainFromTemplate, demoMushroomBody, demoCentralComplex, demoAntennalLobe, demoGiantFiber, demoVentralNerveCord, demoTransfer, buildTransferBrain, saveBrain, loadBrain, assertKindTemplate, restBrain, listSavedBrains } from "./core/fly.js";
+import { getWormTemplate, buildWormBrain, demoWorm, demoWormTransfer, demoWormNavigation, navigateWorm, assertWormKind } from "./core/worm.js";
 import { KINDNESS_RULES, CORE_VALUES, checkKindness, isKindJob, kindnessCharterText } from "./core/kindness.js";
 import { dataLocation } from "./core/store.js";
 
@@ -351,4 +352,106 @@ test("runAllowed: allow-list is a prefix, so args work, and other commands stay 
   const out2 = await runAllowed("node --check test.js", ["node --check"]);
   assert.equal(out2, "");
   await assert.rejects(() => runAllowed("rm -rf /", ["node --test"]), /not allow-listed/);
+});
+
+// --- Runefold Brain v0.3: OpenWorm, a whole C. elegans as a template ---
+
+test("worm: template is toy-scale, uses real worm names, and is listed beside the 5 flies", () => {
+  const t = getWormTemplate();
+  assert.equal(t.name, "worm");
+  assert.ok(t.neurons.length < 120, `worm must stay under 120 neurons, got ${t.neurons.length}`);
+  for (const name of ["awa", "alm", "afd", "ava", "avb", "aia", "aib", "va", "vb"]) {
+    assert.ok(t.neurons.some((n) => n.name === name), `real worm neuron ${name} must be named`);
+  }
+  assert.deepEqual(listTemplates().map((x) => x.name), [
+    "mushroom-body", "central-complex", "antennal-lobe", "giant-fiber", "ventral-nerve-cord",
+  ], "the original fly list must stay exactly the same");
+  assert.deepEqual(listAllTemplates().map((x) => x.name), [
+    "mushroom-body", "central-complex", "antennal-lobe", "giant-fiber", "ventral-nerve-cord", "worm",
+  ]);
+  const brain = buildWormBrain();
+  assert.equal(brain.template, "worm");
+  assert.ok(brain.neuronNames.includes("approach") && brain.neuronNames.includes("crawl-forward"));
+  assert.ok(isKindJob(t.job), "the worm's job must pass the kindness check");
+});
+
+test("worm: crawls forward toward food smell, backward away from bad smell", () => {
+  const n = demoWormNavigation();
+  assert.equal(n.foodRun.trace[0].action, "crawl-forward", "food smell ahead must start a forward crawl");
+  assert.equal(n.foodRun.reachedFood, true, "the worm must reach the food cell");
+  assert.equal(n.foodRun.steps, 4, "from (2,3) to (6,3) is 4 steps");
+  assert.equal(n.foodRun.final.x, 6);
+  assert.equal(n.badRun.trace[0].action, "crawl-backward", "bad smell ahead must back the worm up");
+  assert.ok(n.badRun.final.x > n.badRun.start.x, "backing up must move away from the bad smell at x=0");
+  // A direct run, not just the fixed demo, must make the same decision.
+  const direct = navigateWorm({ start: { x: 2, y: 3, dir: "E" }, maxSteps: 8 });
+  assert.equal(direct.reachedFood, true);
+  assert.equal(direct.trace[0].senses, "smell-a");
+});
+
+test("worm: turns when it hits a wall instead of walking through it", () => {
+  const n = demoWormNavigation();
+  const first = n.wallRun.trace[0];
+  assert.match(first.action, /^turn-(dorsal|ventral)$/, `wall bump must turn, got ${first.action}`);
+  assert.equal(first.moved, false, "a turn must not move the worm into the wall");
+  assert.equal(first.dir, "N", "facing east at the east wall, a dorsal turn faces north");
+  for (const s of n.wallRun.trace) {
+    assert.ok(s.x >= 0 && s.x < n.world.width && s.y >= 0 && s.y < n.world.height, "never outside the grid");
+  }
+});
+
+test("worm: muscles alternate dorsal / ventral like a real crawl", () => {
+  const brain = buildWormBrain();
+  brain.stimulate("crawl-forward", 1.2);
+  const order = [];
+  for (let t = 0; t < 6; t++) {
+    const r = brain.tick();
+    for (const s of r.spikes) if (s === "muscle-dorsal" || s === "muscle-ventral") order.push(s);
+  }
+  assert.deepEqual(order, ["muscle-dorsal", "muscle-ventral"], "forward crawl contracts dorsal then ventral muscle");
+});
+
+test("worm: learns smell-a -> approach and smell-b -> avoid, wrong pairing stays quiet", () => {
+  const d = demoWorm();
+  assert.equal(d.beforeApproach.rate, 0, "untrained food smell must not trigger approach");
+  assert.equal(d.beforeAvoid.rate, 0, "untrained bad smell must not trigger avoid");
+  assert.equal(d.afterApproach.rate, 1, `learned approach should fire every trial (got ${d.afterApproach.rate})`);
+  assert.equal(d.afterAvoid.rate, 1, `learned avoid should fire every trial (got ${d.afterAvoid.rate})`);
+  assert.equal(d.wrong.rate, 0, "food smell must not trigger avoid");
+  assert.ok(d.weightKcAApproach > 0.08, `kc-a -> approach weight must grow (got ${d.weightKcAApproach})`);
+});
+
+test("worm: transfer — a trained worm learns a new smell in fewer rounds than a fresh worm", () => {
+  const d = demoWormTransfer();
+  assert.ok(d.freshRate >= 0.8, `fresh worm must eventually learn smell-c (rate ${d.freshRate})`);
+  assert.ok(d.transferRate >= 0.8, `transferred worm must learn smell-c (rate ${d.transferRate})`);
+  assert.ok(d.transferRounds < d.freshRounds,
+    `transferred worm must learn faster (fresh ${d.freshRounds}, transferred ${d.transferRounds})`);
+  assert.ok(d.roundsSaved >= 2, `transfer should save at least 2 rounds (saved ${d.roundsSaved})`);
+  assert.ok(d.retainedRate >= 0.8, `old smell must be remembered (rate ${d.retainedRate})`);
+});
+
+test("worm: /newbrain worm works through the existing template system; a harmful worm job is refused kindly", () => {
+  const name = "test-worm-brain";
+  const brainsPath = path.join(dataLocation(), "brains.json");
+  try {
+    const brain = buildWormBrain();
+    saveBrain(name, "worm", brain);
+    const loaded = loadBrain(name);
+    assert.equal(loaded.template, "worm");
+    assert.deepEqual(loaded.neuronNames, brain.neuronNames);
+    assert.equal(loaded.weight("smell-a", "kc-a-01"), 1, "saved worm weights must survive loading");
+    // The kindness gate is the SAME function fly uses (checkKindness).
+    assert.doesNotThrow(() => assertWormKind(getWormTemplate()));
+    const harmful = { ...getWormTemplate(), job: "cause pain to a living animal" };
+    assert.throws(() => assertWormKind(harmful), /Kind refusal/);
+    assert.throws(() => assertKindTemplate(harmful), /Kind refusal/);
+    assert.equal(checkKindness(harmful).ok, false);
+  } finally {
+    try {
+      const data = JSON.parse(fs.readFileSync(brainsPath, "utf8"));
+      data.items = data.items.filter((b) => b.name !== name);
+      fs.writeFileSync(brainsPath, JSON.stringify(data, null, 2));
+    } catch { /* store may not exist if the test failed early */ }
+  }
 });
