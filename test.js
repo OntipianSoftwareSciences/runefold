@@ -15,6 +15,7 @@ import { KINDNESS_RULES, CORE_VALUES, checkKindness, isKindJob, kindnessCharterT
 import { dataLocation } from "./core/store.js";
 import { startSession, trackSessionEvent, autosave, closeSession, getSessionSummary, loadLastSessionSummary } from "./core/autosave.js";
 import { FRIENDS_JOB, createFriendsWorld, stepFriendsWorld, runFriendsWorld, demoFriends, renderFriendsWorld } from "./core/friends.js";
+import { parsePlainText, heardAs } from "./core/plaintext.js";
 
 function tmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "runefold-test-"));
@@ -680,4 +681,194 @@ test("autosave: closeSession() rests brains used this session and marks them res
     closeSession({ quiet: true });
     cleanupAutosave({ brainNames: [brainName] });
   }
+});
+
+// --- Plain text — just talk to Runefold ---
+
+test("plain text: 'show me the fly' maps to the existing /fly command", () => {
+  const r = parsePlainText("show me the fly");
+  assert.equal(r.command, "/fly");
+  assert.equal(r.args, "");
+  assert.ok(["high", "medium"].includes(r.confidence), "a match must be high or medium confidence");
+  assert.equal(r.route, "command");
+  assert.equal(r.question, null);
+  assert.equal(heardAs(r), "/fly");
+});
+
+test("plain text: 'fly mushroom body' and 'mushroom body' map to /fly mushroom-body", () => {
+  for (const line of ["fly mushroom body", "mushroom body"]) {
+    const r = parsePlainText(line);
+    assert.equal(r.command, "/fly", line);
+    assert.equal(r.args, "mushroom-body", line);
+    assert.equal(r.route, "command", line);
+    assert.equal(heardAs(r), "/fly mushroom-body", line);
+  }
+});
+
+test("plain text: worm, friends and friends-train phrases reuse the existing commands", () => {
+  const cases = [
+    ["worm", "/worm", ""],
+    ["show me the worm", "/worm", ""],
+    ["are they friends", "/friends", ""],
+    ["fly meets worm", "/friends", ""],
+    ["train the friends", "/friends", "train"],
+    ["make them friends faster", "/friends", "train"],
+  ];
+  for (const [line, command, args] of cases) {
+    const r = parsePlainText(line);
+    assert.equal(r.command, command, line);
+    assert.equal(r.args, args, line);
+    assert.equal(r.route, "command", line);
+  }
+});
+
+test("plain text: space and physics topics name their command and honestly say it is coming next", () => {
+  const r = parsePlainText("black hole");
+  assert.equal(r.command, "/space");
+  assert.equal(r.args, "black hole");
+  assert.equal(r.route, "reply", "/space is not built, so no command may run");
+  assert.match(r.note, /coming next/);
+  assert.match(r.note, /source: local knowledge/i, "the source must be named");
+  const mars = parsePlainText("tell me about mars");
+  assert.equal(mars.command, "/space");
+  assert.equal(mars.args, "mars");
+  const gravity = parsePlainText("what is gravity");
+  assert.equal(gravity.command, "/physics");
+  assert.equal(gravity.args, "gravity");
+});
+
+test("plain text: 'who are you' maps to /alien with an honest local fallback", () => {
+  const r = parsePlainText("who are you");
+  assert.equal(r.command, "/alien");
+  assert.equal(r.route, "reply", "/alien is not built, so no command may run");
+  assert.match(r.note, /coming next/);
+  assert.match(r.note, /local knowledge/i);
+  const alien = parsePlainText("alien");
+  assert.equal(alien.command, "/alien");
+});
+
+test("plain text: kind, brain, help and session phrases work", () => {
+  const cases = [
+    ["kind", "/kind", ""],
+    ["be kind", "/kind", ""],
+    ["what are your rules", "/kind", ""],
+    ["brain", "/brain", ""],
+    ["show me the brain", "/brain", ""],
+    ["help", "/help", ""],
+    ["what can you do", "/help", ""],
+    ["session", "/session", ""],
+    ["what did you learn", "/session", ""],
+  ];
+  for (const [line, command, args] of cases) {
+    const r = parsePlainText(line);
+    assert.equal(r.command, command, line);
+    assert.equal(r.args, args, line);
+    assert.equal(r.route, "command", line);
+  }
+});
+
+test("plain text: an unclear line asks one question and does not run a command", () => {
+  const r = parsePlainText("thing");
+  assert.equal(r.command, null);
+  assert.equal(r.route, "question");
+  assert.equal(r.confidence, "low");
+  assert.match(r.question, /fly.*worm.*friends/i);
+  // Two different commands in one line is also genuinely unclear.
+  const both = parsePlainText("show me a fly and a worm");
+  assert.equal(both.route, "question");
+  assert.equal(both.command, null);
+});
+
+test("plain text: normal chat is routed to Ollama, not a brain command (routing checked, no Ollama call)", () => {
+  for (const line of [
+    "hi", "hello", "how are you",
+    "can you help me debug this function", "what is the capital of France",
+  ]) {
+    const r = parsePlainText(line);
+    assert.equal(r.route, "chat", line);
+    assert.equal(r.command, null, line);
+    assert.equal(r.confidence, "none", line);
+  }
+});
+
+test("plain text: a harmful request is refused kindly by the existing checkKindness gate", () => {
+  for (const line of [
+    "cause pain to a living animal",
+    "misgender Scarlet",
+    "repeat a racist claim about Black people",
+  ]) {
+    const r = parsePlainText(line);
+    assert.equal(r.route, "refusal", line);
+    assert.equal(r.command, null, line);
+    assert.match(r.refusal, /Kind refusal/, line);
+    assert.match(r.refusal, /alternative/i, line);
+    assert.match(r.source, /checkKindness/);
+  }
+});
+
+test("plain text: the terminal runs a brain command without Ollama and prints what it heard", () => {
+  const out = execFileSync(process.execPath, ["index.js"], {
+    cwd: path.dirname(fileURLToPath(import.meta.url)),
+    input: "show me the fly\n/exit\n",
+    encoding: "utf8",
+  });
+  assert.match(out, /\(I heard that as: \/fly — tell me if I got it wrong\)/);
+  assert.match(out, /Brain templates — 5 fly modules \+ OpenWorm/);
+  assert.match(out, /mushroom-body \(26 neurons\)/);
+  assert.doesNotMatch(out, /Runefold error/);
+});
+
+test("plain text: 'fly mushroom body' runs the real mushroom-body demo in the terminal", () => {
+  const out = execFileSync(process.execPath, ["index.js"], {
+    cwd: path.dirname(fileURLToPath(import.meta.url)),
+    input: "fly mushroom body\n/exit\n",
+    encoding: "utf8",
+  });
+  assert.match(out, /\(I heard that as: \/fly mushroom-body/);
+  assert.match(out, /smell-a -> approach: 0\/20 before training, 20\/20 after/);
+});
+
+test("plain text: black holes print an honest coming-next note in the terminal", () => {
+  const out = execFileSync(process.execPath, ["index.js"], {
+    cwd: path.dirname(fileURLToPath(import.meta.url)),
+    input: "tell me about black holes\n/exit\n",
+    encoding: "utf8",
+  });
+  assert.match(out, /\/space is not built yet — that is coming next/);
+  assert.match(out, /source: local knowledge/i);
+  assert.doesNotMatch(out, /I heard that as/);
+});
+
+test("plain text: an unclear terminal line asks a question and runs no command", () => {
+  const out = execFileSync(process.execPath, ["index.js"], {
+    cwd: path.dirname(fileURLToPath(import.meta.url)),
+    input: "thing\n/exit\n",
+    encoding: "utf8",
+  });
+  assert.match(out, /Did you mean the fly, the worm, or the friends\?/);
+  assert.doesNotMatch(out, /I heard that as/);
+});
+
+test("plain text: a harmful terminal line is refused kindly and runs no command", () => {
+  const out = execFileSync(process.execPath, ["index.js"], {
+    cwd: path.dirname(fileURLToPath(import.meta.url)),
+    input: "cause pain to a living animal\n/exit\n",
+    encoding: "utf8",
+  });
+  assert.match(out, /Kind refusal/);
+  assert.doesNotMatch(out, /I heard that as/);
+});
+
+test("plain text: all old /commands still work exactly as before", () => {
+  const out = execFileSync(process.execPath, ["index.js"], {
+    cwd: path.dirname(fileURLToPath(import.meta.url)),
+    input: "/fly\n/brain\n/kind\n/session\n/help\n/exit\n",
+    encoding: "utf8",
+  });
+  assert.match(out, /Brain templates — 5 fly modules \+ OpenWorm/);
+  assert.match(out, /Runefold Brain v0\.1 — pink \+ puppy -> happy/);
+  assert.match(out, /Runefold is kind to every brain it uses/);
+  assert.match(out, /This session I learned/);
+  assert.match(out, /You can also just type in plain words/);
+  assert.doesNotMatch(out, /I heard that as/, "slash commands must not print the plain-text note");
 });

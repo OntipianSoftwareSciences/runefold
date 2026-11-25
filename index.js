@@ -11,6 +11,7 @@ import { KINDNESS_RULES, kindnessCharterText, checkKindness } from "./core/kindn
 import { demoWorm, demoWormTransfer, wormDemoSummary } from "./core/worm.js";
 import { demoFriends } from "./core/friends.js";
 import { startSession, trackSessionEvent, closeSession, getSessionSummary, sessionSummaryText } from "./core/autosave.js";
+import { parsePlainText, heardAs } from "./core/plaintext.js";
 
 const CONFIG_PATH = new URL("./config.json", import.meta.url);
 let config;
@@ -81,6 +82,12 @@ ${magenta}KINDNESS — Runefold is kind to every brain it uses${reset}
   /kind <job...>             Check a job against the charter — Runefold
                              refuses transphobic, racist, or harmful jobs
   /kind rest <name>          Thank a saved brain and rest it (sleep)
+${magenta}PLAIN TEXT — no slash needed${reset}
+   You can also just type in plain words — e.g. 'show me the fly', 'tell me about black holes', 'are the fly and worm friends?'
+   'fly mushroom body' -> /fly mushroom-body   ·   'train the friends' -> /friends train
+   'who are you', 'what are your rules', 'what did you learn' work too.
+   If I'm unsure, I ask one question instead of guessing. /commands still work.
+   Plain-text brain commands run locally — no Ollama needed. Normal chat still uses Ollama.
 ${magenta}OTHER${reset}
   /autolearn on|off  /status  /session  /help  /exit
 Chat normally for a plain answer. Auto-learning only saves durable, non-sensitive statements.
@@ -371,19 +378,43 @@ rl.on("line", async line => {
         trackSessionEvent({ type: "command", name: cmdName, outcome: "success" });
       }
     } else {
-      // User messages count toward the automatic 10-message save. Chat still
-      // needs Ollama; autosave and /session do not.
-      trackSessionEvent({ type: "userMessage", text: input });
-      startLiquidCursor();
-      const result = await agent.chat(input, { useTools: true }); stopLiquidCursor();
-      if (result.learned) {
-        trackSessionEvent({ type: "teach", text: result.learned.content, id: result.learned.id });
-        console.log(`${dim}◈ learned a durable ${result.learned.category} detail (conf ${result.learned.confidence})${reset}`);
-      }
-      if (/\b(don't know|do not know|can't answer|cannot answer|not sure|no answer)\b/i.test(result.answer || "")) {
+      // Plain text is an EXTRA way in, tried first. Only when the small local
+      // matcher finds no match at all does the line stay normal chat and go
+      // to Ollama, exactly as it did before. /commands are untouched.
+      const parsed = parsePlainText(input);
+      if (parsed.route === "refusal") {
+        // The existing checkKindness() already refused this kindly.
+        console.log(`\n${yellow}${parsed.refusal}${reset}\n`);
+      } else if (parsed.route === "question") {
+        // Unsure: ask ONE question and wait. Never run a random command.
+        console.log(`\n${yellow}${parsed.question}${reset}\n`);
         trackSessionEvent({ type: "question", text: input });
+      } else if (parsed.route === "reply") {
+        // The topic maps to a command not built yet (/space, /physics,
+        // /alien). Say so, name the local source, run nothing, call no Ollama.
+        console.log(`\n${dim}${parsed.note}${reset}\n`);
+      } else if (parsed.route === "command") {
+        // High / medium match: run the EXISTING command and say what we heard.
+        const heard = heardAs(parsed);
+        console.log(`${dim}(I heard that as: ${heard} — tell me if I got it wrong)${reset}`);
+        const result = await command(heard);
+        if (result === false) return;
+        if (result === null) console.log("Unknown command. Type /help.");
+        trackSessionEvent({ type: "command", name: heard, outcome: result === null ? "unknown" : "success" });
+      } else {
+        // No match: normal chat. Ollama is still required here, and only here.
+        trackSessionEvent({ type: "userMessage", text: input });
+        startLiquidCursor();
+        const result = await agent.chat(input, { useTools: true }); stopLiquidCursor();
+        if (result.learned) {
+          trackSessionEvent({ type: "teach", text: result.learned.content, id: result.learned.id });
+          console.log(`${dim}◈ learned a durable ${result.learned.category} detail (conf ${result.learned.confidence})${reset}`);
+        }
+        if (/\b(don't know|do not know|can't answer|cannot answer|not sure|no answer)\b/i.test(result.answer || "")) {
+          trackSessionEvent({ type: "question", text: input });
+        }
+        console.log(`\n${green}${result.answer}${reset}\n`);
       }
-      console.log(`\n${green}${result.answer}${reset}\n`);
     }
   } catch (err) {
     if (cmdName) trackSessionEvent({ type: "command", name: cmdName, outcome: "failure" });

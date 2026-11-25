@@ -956,3 +956,121 @@ Files: `core/autosave.js` (new — session tracking, autosave, close-out,
 summary text), `index.js` (timer/exit wiring, `/session`, help lines and
 event tracking only), `test.js` (5 new autosave tests; the original 40
 untouched — 45 tests total), this README.
+
+## Plain text — just talk to Runefold
+
+You no longer need to remember a slash command. Type what you mean in plain
+words and Runefold tries to hear it locally, offline, with no Ollama call.
+
+**How it works, in plain words.** On each line that does **not** start with
+`/`, Runefold first asks a small matcher in `core/plaintext.js`. That matcher
+is a short table of keywords and simple phrases. An exact short phrase
+(`show me the fly`) is a **high**-confidence match; a single clear keyword
+(`worm`) is a **medium**-confidence match. Either way it runs the **existing**
+command — there is no second command system — and prints a tiny note:
+
+```
+(I heard that as: /fly mushroom-body — tell me if I got it wrong)
+```
+
+If the line is genuinely unclear (`thing`, or two different commands in one
+line), it does **not** guess: it asks **one** question and waits for your
+answer. If nothing in the table matches at all (`hi`, `how are you`, a question
+about code), the line stays normal chat and goes to Ollama exactly as it did
+before. Lines that start with `/` go straight to the old command switch and
+are unchanged. Every plain-text line passes through the existing
+`checkKindness()` gate first, so a harmful, transphobic or racist request is
+refused kindly before any job runs.
+
+**Examples of what to type**
+
+| Type this | Runs | Ollama needed? |
+|---|---|---|
+| `fly`, `show me the fly`, `run the fly brain` | `/fly` | no |
+| `fly mushroom body`, `mushroom body` | `/fly mushroom-body` | no |
+| `worm`, `show me the worm` | `/worm` | no |
+| `friends`, `fly meets worm`, `are they friends`, `are the fly and worm friends?` | `/friends` | no |
+| `train the friends`, `make them friends faster` | `/friends train` | no |
+| `black hole`, `tell me about mars` | would be `/space <topic>` — see honest note below | no |
+| `what is gravity` | would be `/physics gravity` — see honest note below | no |
+| `alien`, `who are you`, `tell me about yourself` | would be `/alien` — see honest note below | no |
+| `kind`, `be kind`, `what are your rules` | `/kind` | no |
+| `brain`, `show me the brain` | `/brain` | no |
+| `help`, `what can you do` | `/help` | no |
+| `session`, `what did you learn` | `/session` | no |
+| `hi`, `how are you`, code questions | normal chat → Ollama | yes |
+
+`/space`, `/physics` and `/alien` are **not built yet**. The topic still maps
+to the right command name, but Runefold says plainly "that is coming next",
+names the source as local knowledge, and runs nothing. Nothing is faked.
+
+When Runefold is unsure it asks one question instead of guessing:
+
+```
+🫧 runefold ❯ thing
+
+Did you mean the fly, the worm, or the friends? Tell me which one and I'll run it.
+```
+
+**The `/commands` still work** — `/fly`, `/worm`, `/friends`, `/friends train`,
+`/brain`, `/kind`, `/session`, `/help`, `/exit` and every other command behave
+exactly as before. Plain text is an extra way in, not a replacement. You can
+also always answer an unsure question with the exact `/command`.
+
+**The honest limit.** This matcher does **not** understand all English. It is
+not a model and does not call Ollama: it matches keywords and a few simple
+phrases from one small table, so it can mishear an unusual sentence (and it
+deliberately leaves ordinary chat alone). If it gets it wrong, tell it: use
+the exact `/command` to do the job, and `/feedback` or `/teach` to correct it
+— those are Runefold's existing learning paths, so it learns without a second
+system. Adding a new plain-text phrase means adding one row to the table in
+`core/plaintext.js`.
+
+**Full terminal session (real output observed).** These lines were piped into
+`node index.js` with ANSI colour codes stripped. With piped input the prompt
+prints once at the start, so later prompts cluster together. No Ollama was
+running.
+
+```
+╭────────────────────────────────────────────────────╮
+│  R U N E F O L D   A I   //   ADAPTIVE CORE 0.6.1  │
+│  MEMORY  ◈  RETRIEVAL  ◈  PLAN  ◈  CRITIC  ◈  TOOLS  │
+╰────────────────────────────────────────────────────╯
+Local-first terminal assistant • type /help for commands • /think uses plan + critic
+Memory store: /home/scarletborrowedthis/.runefold
+
+🫧 runefold ❯ (I heard that as: /fly — tell me if I got it wrong)
+
+Brain templates — 5 fly modules + OpenWorm
+  mushroom-body (26 neurons) — Learn smell -> approach / avoid [learnable]
+  central-complex (11 neurons) — Hold a heading, correct drift
+  antennal-lobe (10 neurons) — Sort two similar smells apart
+  giant-fiber (10 neurons) — Fast escape from a looming shadow
+  ventral-nerve-cord (10 neurons) — Walk: alternating left / right steps
+  worm (54 neurons) — Crawl toward food smells and away from bad smells, and turn at walls [learnable]
+Try: /fly mushroom-body   or   /fly worm   or   /fly transfer   or   /newbrain worm my-worm
+
+(I heard that as: /fly mushroom-body — tell me if I got it wrong)
+
+Fly template: mushroom-body — Learn smell -> approach / avoid
+  smell-a -> approach: 0/20 before training, 20/20 after
+  smell-b -> avoid: 0/20 before training, 20/20 after
+  wrong pairing (smell-a -> avoid): 0/10 — stays quiet, as it should
+  kc-a-01 -> approach weight: now 0.38
+Toy scale, simplified from the real fly circuit — see README "Brain v0.2".
+
+
+/space is not built yet — that is coming next. Source: local knowledge. I can name the topic, but this offline terminal has no live reference so I cannot verify the details here.
+
+🫧 runefold ❯ 
+Did you mean the fly, the worm, or the friends? Tell me which one and I'll run it.
+
+🫧 runefold ❯ 🫧 runefold ❯ 🫧 runefold ❯ 
+This session I learned nothing new, I got better at no new skills, I rested no brains, I still don't know thing.
+Runefold session closed. Your saved learning remains on this computer.
+```
+
+Files: `core/plaintext.js` (new — the small local matcher and kindness gate),
+`index.js` (one import, plain-text help lines, one extra branch in the input
+loop; no Ollama, config, chatbot or login changes), `test.js` (15 new plain-text
+tests; the original 45 untouched — 60 tests total), this README.
