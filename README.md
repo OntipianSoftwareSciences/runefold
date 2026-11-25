@@ -852,3 +852,107 @@ only reward and practice.
 Files: `core/friends.js` (new — world, rendering, stepping, demos),
 `index.js` (`/friends`, `/friends train`, help lines only),
 `test.js` (7 new friends tests; the original 33 untouched), this README.
+
+## Autosave — each session makes Runefold smarter
+
+Runefold now learns across sessions **without Scarlet running a command**.
+The new `core/autosave.js` keeps a short, in-memory record of the current
+session only: what Scarlet taught, accepted or rejected; which commands were
+used; which brains were trained or used; what worked; what failed; and which
+questions Runefold could not answer. Nothing is written to a new database —
+everything goes into the same `~/.runefold` store as before.
+
+**What autosaves, and when**
+
+- **Every 5 minutes, or every 10 user messages, whichever comes first** —
+  memory, brain weights and learned skills are written to the existing
+  `memory.json`, `brains.json` and `skills.json`. These writes are atomic
+  with a `.bak` copy, so a crash mid-save cannot wipe the store.
+  The terminal prints one quiet line: `autosaved ✓` (throttled, so it does
+  not spam the screen).
+- **On exit** — `/exit`, `/quit`, Ctrl+C, SIGTERM, or simply closing the
+  terminal runs the session close-out automatically, then saves one last
+  time and prints a short plain-words summary before
+  `Runefold session closed`.
+- **At the start of the next session** — Runefold loads the saved summary
+  from `~/.runefold/last-session.json` (plain JSON in the same store) and
+  prints a `Welcome back — last time I learned ...` line. The memories,
+  skills and brains themselves are read from the existing store too.
+
+**What the close-out does (plain words)**
+
+1. **Memory sleep:** memories that were used or accepted get stronger;
+   memories that were rejected or unused get weaker. The actual work is
+   done by the existing `consolidate()` in `core/learning.js` — the same
+   "sleep" step as `/consolidate`. No second learning system was added.
+2. **Skill promotion:** a lesson Scarlet taught 3+ times, a command that
+   worked 3+ times, or a repeated success becomes a skill in the existing
+   `skills.json`, so the next session starts with it.
+3. **Forget kindly:** very low-confidence memories that were never used are
+   allowed to drop. Memories Scarlet explicitly taught, verified
+   corrections, and kindness / core-value memories are never dropped.
+4. **Brains rest:** every brain used or trained this session is rested with
+   the existing `restBrain()` / `sleep()` from `core/fly.js` — exactly what
+   `/kind rest` does — and is marked `rested` with a `restedAt` time.
+5. **Kindness gate:** `checkKindness()` from `core/kindness.js` runs before
+   anything becomes a skill or stays a memory. A harmful, transphobic or
+   racist job is refused kindly, is not saved, and is noted in the summary.
+
+`/session` shows the current session's summary on demand. It is **only** a
+view — autosave works whether or not you ever type it. No other command was
+changed, and normal chat still needs Ollama; autosave, `/session` and the
+welcome-back line do not.
+
+**Full terminal session (real output observed).** Commands were piped into
+`node index.js` with ANSI colour codes stripped. Ten ordinary chat lines
+(`m1`...`m10`) were piped for the automatic 10-message save; no Ollama was
+running. With piped input the prompt is printed once at the start, so later
+prompts appear clustered.
+
+```
+
+╭────────────────────────────────────────────────────╮
+│  R U N E F O L D   A I   //   ADAPTIVE CORE 0.6.1  │
+│  MEMORY  ◈  RETRIEVAL  ◈  PLAN  ◈  CRITIC  ◈  TOOLS  │
+╰────────────────────────────────────────────────────╯
+Local-first terminal assistant • type /help for commands • /think uses plan + critic
+Memory store: /home/scarletborrowedthis/.runefold
+
+Welcome back — last time I learned from now on use pink terminals.
+🫧 runefold ❯ 
+New brain "demo-autosave-brain" saved. Template: mushroom-body — Learn smell -> approach / avoid
+Neurons: 26 | Connections: 62
+Inputs: smell-a, smell-b, reward, punishment
+Outputs: approach, avoid
+Saved in your Runefold memory store (brains.json). Run it with /brain demo-autosave-brain or /fly mushroom-body.
+
+Learned and saved (confidence 0.6 — it rises with confirmation).
+This session I learned remember that I prefer pink terminals, I got better at no new skills, I rested no brains, and I had no questions I couldn't answer.
+autosaved ✓
+This session I learned remember that I prefer pink terminals, I got better at no new skills, I rested no brains, and I had no questions I couldn't answer.
+🫧 runefold ❯ 🫧 runefold ❯ 🫧 runefold ❯ 🫧 runefold ❯ 
+This session I learned remember that I prefer pink terminals, I got better at no new skills, I rested 1 brain, and I had no questions I couldn't answer.
+Runefold session closed. Your saved learning remains on this computer.
+```
+
+**Crash-safe check (observed).** Before that session, `memory.json` and
+`last-session.json` had one set of hashes; after it, `memory.json`,
+`brains.json` and `last-session.json` all had different hashes, and the saved
+brain showed `rested: true`. Starting a fresh `node index.js` immediately
+afterwards printed:
+
+```
+Welcome back — last time I learned remember that I prefer pink terminals.
+```
+
+**Honest limits.** Autosave writes to the local computer only — it does
+**not** upload anything to a cloud. It does **not** train the Ollama/Qwen
+model weights. It makes Runefold better at remembering and reusing what
+Scarlet taught it, not generally intelligent. A simulated brain still does
+not feel pain; resting it is a kindness rule in code, not a claim that it
+suffers.
+
+Files: `core/autosave.js` (new — session tracking, autosave, close-out,
+summary text), `index.js` (timer/exit wiring, `/session`, help lines and
+event tracking only), `test.js` (5 new autosave tests; the original 40
+untouched — 45 tests total), this README.

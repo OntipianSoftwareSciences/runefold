@@ -10,6 +10,7 @@ import { listAllTemplates, runTemplateDemo, demoSummary, buildBrainFromTemplate,
 import { KINDNESS_RULES, kindnessCharterText, checkKindness } from "./core/kindness.js";
 import { demoWorm, demoWormTransfer, wormDemoSummary } from "./core/worm.js";
 import { demoFriends } from "./core/friends.js";
+import { startSession, trackSessionEvent, closeSession, getSessionSummary, sessionSummaryText } from "./core/autosave.js";
 
 const CONFIG_PATH = new URL("./config.json", import.meta.url);
 let config;
@@ -40,6 +41,7 @@ ${magenta}LEARNING${reset}
   /goals                     List goals
   /search <query>            Show what retrieval actually finds (with scores)
   /journal                   Show recent journal entries
+  /session                   Show this session's learning summary (autosave is automatic)
 ${magenta}THINKING${reset}
   /plan <task>               Plan only — break it into testable steps
   /think <task>              Plan + answer + self-critic + one revision
@@ -80,8 +82,9 @@ ${magenta}KINDNESS — Runefold is kind to every brain it uses${reset}
                              refuses transphobic, racist, or harmful jobs
   /kind rest <name>          Thank a saved brain and rest it (sleep)
 ${magenta}OTHER${reset}
-  /autolearn on|off  /status  /help  /exit
+  /autolearn on|off  /status  /session  /help  /exit
 Chat normally for a plain answer. Auto-learning only saves durable, non-sensitive statements.
+Session learning saves itself every 5 minutes / 10 messages and on exit — no command needed.
 `);
 }
 function status() {
@@ -112,14 +115,19 @@ async function command(line) {
   const arg = rest.join(" ").trim();
   switch ((cmd || "").toLowerCase()) {
     case "/help": help(); return true;
-    case "/teach": if (!arg) { console.log("Usage: /teach <text>"); return true; } console.log(teach(arg, "user-taught", "explicit user teaching").message); return true;
+    case "/teach": if (!arg) { console.log("Usage: /teach <text>"); return true; } { const r = teach(arg, "user-taught", "explicit user teaching"); console.log(r.message); if (r.ok && r.item) trackSessionEvent({ type: "teach", text: arg, id: r.item.id }); } return true;
     case "/memory": { const items = listMemories(); if (!items.length) console.log("No memories yet."); for (const x of items) console.log(`${yellow}[${x.id}]${reset} ${magenta}${x.category}${reset} conf=${(x.confidence ?? 0.6).toFixed(2)} ${x.content}`); return true; }
     case "/forget": if (!arg) { console.log("Usage: /forget <id or phrase>"); return true; } console.log(`Deleted ${forgetMemory(arg)} matching memory item(s).`); return true;
     case "/consolidate": { const r = consolidate(); console.log(`Consolidated: kept ${r.kept}, decayed ${r.decayed}, merged ${r.merged}. Nothing explicit was deleted silently — check /memory.`); return true; }
     case "/feedback": {
       const task = await ask("Task: "); const outcome = await ask("Outcome (success/failure/partial): ");
       const notes = await ask("What happened? "); const correction = await ask("What should it do differently? (Enter to skip): ");
-      console.log(`${green}Recorded: ${addExperienceRecord({ task, outcome, notes, correction }).id}${reset}`); return true;
+      const rec = addExperienceRecord({ task, outcome, notes, correction });
+      const matched = listMemories().find(m => m.content.toLowerCase().includes(String(task).toLowerCase()));
+      const outcomeType = outcome === "success" ? "accept" : "reject";
+      trackSessionEvent({ type: outcomeType, text: task, id: matched && matched.id });
+      trackSessionEvent({ type: outcome === "success" ? "success" : "failure", text: task || notes });
+      console.log(`${green}Recorded: ${rec.id}${reset}`); return true;
     }
     case "/experience": { const items = readExperiences(15); if (!items.length) console.log("No experiences."); for (const x of items) console.log(`${yellow}[${x.id}]${reset} ${x.outcome.toUpperCase()} — ${x.task}\n  ${x.notes}${x.correction ? `\n  Correction: ${x.correction}` : ""}`); return true; }
     case "/skill": { const p = arg.split("|").map(x => x.trim()); if (p.length < 2) { console.log("Usage: /skill name | steps"); return true; } const s = recordSkill(p[0], p[1], p[2] || ""); console.log(`Saved skill "${s.name}" [${s.id}].`); return true; }
@@ -168,6 +176,7 @@ async function command(line) {
       if (arg) {
         try {
           const saved = loadBrain(arg);
+          trackSessionEvent({ type: "brain", name: arg, template: saved.template, action: "used", brain: saved });
           const summary = brainSummary(saved, arg);
           console.log(`\n${magenta}Saved brain "${arg}"${reset} — template ${summary.template}, ${summary.neurons} neurons, ${summary.connections} connections`);
           console.log(`Inputs: ${summary.inputs.join(", ")} | Outputs: ${summary.outputs.join(", ")}`);
@@ -262,6 +271,7 @@ async function command(line) {
       try {
         const brain = buildBrainFromTemplate(templateName);
         saveBrain(brainName, templateName, brain);
+        trackSessionEvent({ type: "brain", name: brainName, template: templateName, action: "trained", brain });
         const summary = brainSummary(brain, brainName);
         console.log(`\n${green}New brain "${brainName}" saved.${reset} Template: ${summary.template} — ${brain.templateJob}`);
         console.log(`Neurons: ${summary.neurons} | Connections: ${summary.connections}`);
@@ -310,6 +320,7 @@ async function command(line) {
       const [sourceName, newTemplate, newName] = parts;
       try {
         const r = transferSavedBrain(sourceName, newTemplate, newName);
+        trackSessionEvent({ type: "brain", name: newName, template: newTemplate, action: "trained" });
         console.log(`\n${green}Transferred "${sourceName}" -> new brain "${newName}".${reset}`);
         console.log(`Copied approach weight (halved, from the source brain): ${r.copiedApproachWeight}`);
         console.log(`New smell-c -> approach before retraining: rate ${r.beforeRate}`);
@@ -321,6 +332,7 @@ async function command(line) {
     }
     case "/autolearn": if (arg === "on") config.autoLearn = true; else if (arg === "off") config.autoLearn = false; else { console.log("Usage: /autolearn on|off"); return true; } fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2)); console.log(`Auto-learn ${config.autoLearn ? "ON" : "OFF"}.`); return true;
     case "/status": status(); return true;
+    case "/session": console.log(sessionSummaryText(getSessionSummary())); return true;
     case "/exit": case "/quit": rl.close(); return false;
     default: return null;
   }
@@ -330,21 +342,56 @@ if (process.argv.includes("--doctor")) {
   console.log("Node:", process.version); console.log("Config:", config); console.log("Memory:", dataLocation()); console.log("Paths:", paths());
   console.log("Runefold doctor complete."); process.exit(0);
 }
-banner(); rl.prompt();
+banner();
+const started = startSession();
+if (started.welcomeLine) console.log(started.welcomeLine);
+rl.prompt();
+
+let shuttingDown = false;
+async function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  try { await closeSession({ quiet: true }); } catch { /* still close cleanly */ }
+  console.log(`\n${cyan}${sessionSummaryText(getSessionSummary())}${reset}`);
+  console.log(`${cyan}Runefold session closed. Your saved learning remains on this computer.${reset}`);
+  process.exit(0);
+}
+
 rl.on("line", async line => {
   const input = line.trim(); if (!input) return rl.prompt();
+  const cmdName = input.startsWith("/") ? input.split(" ")[0] : null;
   try {
-    if (input.startsWith("/")) {
+    if (cmdName) {
       const result = await command(input);
       if (result === false) return;
-      if (result === null) console.log("Unknown command. Type /help.");
+      if (result === null) {
+        console.log("Unknown command. Type /help.");
+        trackSessionEvent({ type: "command", name: cmdName, outcome: "unknown" });
+      } else {
+        trackSessionEvent({ type: "command", name: cmdName, outcome: "success" });
+      }
     } else {
+      // User messages count toward the automatic 10-message save. Chat still
+      // needs Ollama; autosave and /session do not.
+      trackSessionEvent({ type: "userMessage", text: input });
       startLiquidCursor();
       const result = await agent.chat(input, { useTools: true }); stopLiquidCursor();
-      if (result.learned) console.log(`${dim}◈ learned a durable ${result.learned.category} detail (conf ${result.learned.confidence})${reset}`);
+      if (result.learned) {
+        trackSessionEvent({ type: "teach", text: result.learned.content, id: result.learned.id });
+        console.log(`${dim}◈ learned a durable ${result.learned.category} detail (conf ${result.learned.confidence})${reset}`);
+      }
+      if (/\b(don't know|do not know|can't answer|cannot answer|not sure|no answer)\b/i.test(result.answer || "")) {
+        trackSessionEvent({ type: "question", text: input });
+      }
       console.log(`\n${green}${result.answer}${reset}\n`);
     }
-  } catch (err) { console.log(`\n${yellow}Runefold error:${reset} ${err.message}\n`); }
+  } catch (err) {
+    if (cmdName) trackSessionEvent({ type: "command", name: cmdName, outcome: "failure" });
+    else trackSessionEvent({ type: "failure", text: input, detail: err.message });
+    console.log(`\n${yellow}Runefold error:${reset} ${err.message}\n`);
+  }
   rl.prompt();
 });
-rl.on("close", () => { console.log(`\n${cyan}Runefold session closed. Your saved learning remains on this computer.${reset}`); process.exit(0); });
+rl.on("close", shutdown);
+process.on("SIGINT", () => { rl.close(); });
+process.on("SIGTERM", () => { rl.close(); });

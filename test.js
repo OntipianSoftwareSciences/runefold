@@ -6,13 +6,14 @@ import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { tokenize, search } from "./core/retrieval.js";
-import { teach, forgetMemory, listMemories, consolidate, addGoal } from "./core/learning.js";
+import { teach, forgetMemory, listMemories, listSkills, consolidate, addGoal } from "./core/learning.js";
 import { writeFile, editFile, runAllowed } from "./core/tools.js";
 import { createBrain, demoBrain } from "./core/brain.js";
 import { listTemplates, listAllTemplates, getTemplate, buildBrainFromTemplate, demoMushroomBody, demoCentralComplex, demoAntennalLobe, demoGiantFiber, demoVentralNerveCord, demoTransfer, buildTransferBrain, saveBrain, loadBrain, assertKindTemplate, restBrain, listSavedBrains } from "./core/fly.js";
 import { getWormTemplate, buildWormBrain, demoWorm, demoWormTransfer, demoWormNavigation, navigateWorm, assertWormKind } from "./core/worm.js";
 import { KINDNESS_RULES, CORE_VALUES, checkKindness, isKindJob, kindnessCharterText } from "./core/kindness.js";
 import { dataLocation } from "./core/store.js";
+import { startSession, trackSessionEvent, autosave, closeSession, getSessionSummary, loadLastSessionSummary } from "./core/autosave.js";
 import { FRIENDS_JOB, createFriendsWorld, stepFriendsWorld, runFriendsWorld, demoFriends, renderFriendsWorld } from "./core/friends.js";
 
 function tmpDir() {
@@ -554,4 +555,129 @@ test("friends: the world is deterministic and renders sky, grass, honeycomb and 
   assert.match(grid, /,/, "grass at the bottom");
   assert.match(grid, /♥/, "a little heart when they are friends");
   assert.match(grid, /Fw/, "fly and worm stay close together");
+});
+
+// --- Autosave: silent session learning, using the existing store + sleep ---
+
+function cleanupAutosave({ memoryTexts = [], skillFragments = [], brainNames = [] } = {}) {
+  for (const text of memoryTexts) { try { forgetMemory(text); } catch { /* nothing to clean */ } }
+  const skillsPath = path.join(dataLocation(), "skills.json");
+  try {
+    const d = JSON.parse(fs.readFileSync(skillsPath, "utf8"));
+    d.items = d.items.filter(s => !skillFragments.some(f => s.name.includes(f)));
+    fs.writeFileSync(skillsPath, JSON.stringify(d, null, 2));
+  } catch { /* store may not exist yet */ }
+  const brainsPath = path.join(dataLocation(), "brains.json");
+  try {
+    const d = JSON.parse(fs.readFileSync(brainsPath, "utf8"));
+    d.items = d.items.filter(b => !brainNames.includes(b.name));
+    fs.writeFileSync(brainsPath, JSON.stringify(d, null, 2));
+  } catch { /* store may not exist yet */ }
+}
+
+test("autosave: saves memory and brain weights to disk; reloading gives the same values", () => {
+  const tag = "art" + String(Date.now()).slice(-6); // short: learning.js filters 32+ char tokens
+  const brainName = "autosave-roundtrip-" + String(Date.now()).slice(-7);
+  try {
+    startSession({ startTimer: false });
+    const r = teach(`autosave roundtrip ${tag}: I prefer pink terminals`, "preference", "explicit user teaching");
+    assert.ok(r.ok, "teach should save the memory");
+    const brain = buildBrainFromTemplate("mushroom-body");
+    const link = brain.connections.find(c => brain.nameOf(c.from) === "smell-a" && brain.nameOf(c.to) === "kc-a-01");
+    link.weight = 0.77; // a trained weight that only exists in memory until autosave
+    trackSessionEvent({ type: "brain", name: brainName, template: "mushroom-body", action: "trained", brain });
+    const saved = autosave({ quiet: true });
+    assert.equal(saved.ok, true);
+    assert.match(fs.readFileSync(path.join(dataLocation(), "memory.json"), "utf8"), new RegExp(tag));
+    const loaded = loadBrain(brainName);
+    assert.equal(loaded.weight("smell-a", "kc-a-01"), 0.77, "brain weight must survive the save/load round trip");
+  } finally {
+    closeSession({ quiet: true });
+    cleanupAutosave({ memoryTexts: [tag], brainNames: [brainName] });
+  }
+});
+
+test("autosave: a pattern taught 3 times becomes a skill, a pattern taught once does not", () => {
+  const tag3 = "at3" + String(Date.now()).slice(-6);
+  const tag1 = "at1" + String(Date.now()).slice(-6);
+  try {
+    const text3 = `always use pink terminals for ${tag3}`;
+    startSession({ startTimer: false });
+    for (let i = 0; i < 3; i++) {
+      const r = teach(text3, "instruction", "explicit user teaching");
+      trackSessionEvent({ type: "teach", text: text3, id: r.item.id });
+    }
+    closeSession({ quiet: true });
+    assert.ok(getSessionSummary().skillsPromoted.some(n => n.includes(tag3)), "3 identical lessons should promote a skill");
+    assert.ok(listSkills().some(s => s.name.includes(tag3)), "the skill must live in the existing skills store");
+
+    const text1 = `always use green terminals for ${tag1}`;
+    startSession({ startTimer: false });
+    const one = teach(text1, "instruction", "explicit user teaching");
+    trackSessionEvent({ type: "teach", text: text1, id: one.item.id });
+    closeSession({ quiet: true });
+    assert.ok(!listSkills().some(s => s.name.includes(tag1)), "one lesson must NOT promote a skill");
+  } finally {
+    closeSession({ quiet: true });
+    cleanupAutosave({ memoryTexts: [tag3, tag1], skillFragments: [tag3, tag1] });
+  }
+});
+
+test("autosave: an accepted memory gets stronger and a rejected one gets weaker after closeSession()", () => {
+  const tag = "acf" + String(Date.now()).slice(-6);
+  try {
+    startSession({ startTimer: false });
+    const good = teach(`autosave accept ${tag}: keep pink terminals`, "preference", "explicit user teaching");
+    const bad = teach(`autosave reject ${tag}: drop green terminals`, "preference", "explicit user teaching");
+    const goodBefore = good.item.confidence;
+    const badBefore = bad.item.confidence;
+    trackSessionEvent({ type: "accept", text: good.item.content, id: good.item.id });
+    trackSessionEvent({ type: "reject", text: bad.item.content, id: bad.item.id });
+    closeSession({ quiet: true });
+    const items = listMemories();
+    const afterGood = items.find(m => m.id === good.item.id);
+    const afterBad = items.find(m => m.id === bad.item.id);
+    assert.ok(afterGood.confidence > goodBefore, `accepted memory should strengthen (${goodBefore} -> ${afterGood.confidence})`);
+    assert.ok(afterBad.confidence < badBefore, `rejected memory should weaken (${badBefore} -> ${afterBad.confidence})`);
+  } finally {
+    closeSession({ quiet: true });
+    cleanupAutosave({ memoryTexts: [tag] });
+  }
+});
+
+test("autosave: a harmful job is NOT promoted to a skill or saved as a memory, even when repeated", () => {
+  const tag = "ahm" + String(Date.now()).slice(-6);
+  const harmful = "cause pain to a living animal";
+  try {
+    startSession({ startTimer: false });
+    for (let i = 0; i < 3; i++) {
+      const r = teach(`${harmful} for ${tag}`, "instruction", "explicit user teaching");
+      assert.ok(r.ok, "teach() itself stores this; the autosave gate must remove it");
+      trackSessionEvent({ type: "teach", text: harmful, id: r.item.id });
+    }
+    closeSession({ quiet: true });
+    assert.ok(getSessionSummary().refusedKindly.length >= 3, "each refused job must be noted kindly");
+    assert.ok(!listSkills().some(s => s.name.includes(harmful) || s.steps.includes(harmful)), "no harmful skill may be saved");
+    assert.ok(!listMemories().some(m => m.content.includes(harmful)), "no harmful memory may be saved");
+  } finally {
+    closeSession({ quiet: true });
+    cleanupAutosave({ skillFragments: [tag], memoryTexts: [tag] });
+  }
+});
+
+test("autosave: closeSession() rests brains used this session and marks them rested", () => {
+  const brainName = "autosave-rest-" + String(Date.now()).slice(-7);
+  try {
+    const brain = buildBrainFromTemplate("central-complex");
+    saveBrain(brainName, "central-complex", brain);
+    assert.equal(listSavedBrains().find(b => b.name === brainName).rested, false, "a new brain starts un-rested");
+    startSession({ startTimer: false });
+    trackSessionEvent({ type: "brain", name: brainName, template: "central-complex", action: "used", brain });
+    closeSession({ quiet: true });
+    assert.ok(getSessionSummary().brainsRested.includes(brainName), "the summary must name the rested brain");
+    assert.equal(listSavedBrains().find(b => b.name === brainName).rested, true, "sleep() ran and the brain is marked rested");
+  } finally {
+    closeSession({ quiet: true });
+    cleanupAutosave({ brainNames: [brainName] });
+  }
 });
