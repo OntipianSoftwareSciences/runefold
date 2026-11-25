@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Runefold — The Agent's Own Cursor</title>
+<style>
+  body {
+    margin: 0; min-height: 100vh; overflow: hidden;
+    background: linear-gradient(135deg, #ffe3f1, #dbeafe 45%, #e9d5ff);
+    font-family: system-ui, sans-serif; color: #4a2b4d;
+    display: grid; place-items: center; text-align: center;
+    cursor: default;
+  }
+  h1 { font-size: 2.6rem; margin: 0; }
+  p { opacity: .75; max-width: 460px; }
+  button {
+    border: 0; padding: 14px 28px; border-radius: 999px; margin: 6px;
+    background: white; font-size: 1rem; box-shadow: 0 6px 20px rgba(0,0,0,.1);
+  }
+  #thought {
+    min-height: 1.5em; font-style: italic; opacity: .8;
+  }
+  #state {
+    display: inline-block; padding: 6px 14px; border-radius: 999px;
+    background: rgba(255,255,255,.7); backdrop-filter: blur(6px);
+    font-size: .9rem; margin-top: 10px;
+  }
+  /* The AGENT — not your mouse. It decides where to go. */
+  .agent {
+    position: fixed; top: 0; left: 0; width: 64px; height: 64px;
+    pointer-events: auto; z-index: 9999;
+    transform: translate(-50%, -50%);
+    transition: width .3s, height .3s;
+    will-change: transform;
+  }
+  .blob {
+    width: 100%; height: 100%;
+    border-radius: 50% 46% 52% 48% / 48% 52% 46% 54%;
+    background: linear-gradient(135deg, rgba(255,255,255,.7), rgba(255,182,213,.4));
+    backdrop-filter: blur(6px) saturate(1.4);
+    -webkit-backdrop-filter: blur(6px) saturate(1.4);
+    border: 1px solid rgba(255,255,255,.85);
+    box-shadow: 0 10px 32px rgba(236,72,153,.28), inset 0 0 20px rgba(255,255,255,.75);
+    display: grid; place-items: center;
+    animation: breathe 2.4s ease-in-out infinite, wobble 3.2s ease-in-out infinite;
+  }
+  @keyframes breathe { 0%,100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+  @keyframes wobble {
+    0%,100% { border-radius: 50% 46% 52% 48% / 48% 52% 46% 54%; }
+    50% { border-radius: 46% 54% 48% 52% / 54% 46% 52% 48%; }
+  }
+  .face { font-size: 26px; line-height: 1; transition: transform .2s; }
+  .agent.thinking .face { transform: rotate(-8deg); }
+  .agent.excited .blob { animation: breathe .7s ease-in-out infinite, bounce .5s ease-in-out infinite; }
+  @keyframes bounce { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+  .agent.sleeping .blob { opacity: .75; animation: breathe 4s ease-in-out infinite; }
+  .agent.sleeping .face { transform: scaleY(.4); }
+  .zzz {
+    position: absolute; top: -18px; right: -6px; font-size: 18px;
+    opacity: 0; animation: zzz 2s ease-out infinite;
+  }
+  .agent.sleeping .zzz { opacity: 1; }
+  @keyframes zzz { 0% { transform: translateY(6px); opacity: 0; } 30% { opacity: 1; } 100% { transform: translateY(-14px); opacity: 0; } }
+  .drop {
+    position: fixed; width: 12px; height: 12px; border-radius: 50%;
+    pointer-events: none; z-index: 9998;
+    background: radial-gradient(circle at 30% 30%, rgba(255,255,255,.9), rgba(255,182,213,.5));
+    animation: fade .8s ease-out forwards;
+  }
+  @keyframes fade { to { transform: scale(.2); opacity: 0; } }
+</style>
+</head>
+<body>
+  <div class="agent" id="agent" title="I'm Runefold's cursor — I decide where I go!">
+    <div class="blob"><span class="face" id="face">🐶</span><span class="zzz">💤</span></div>
+  </div>
+  <main>
+    <h1>🫧 Runefold</h1>
+    <p>This cursor is <b>not yours</b> — it's the agent's. It wanders, gets curious,
+    gets sleepy, and decides what to do next. Move your mouse near it, click it,
+    or just watch it think.</p>
+    <p id="thought">…</p>
+    <div><span id="state">state: waking up…</span></div>
+    <div style="margin-top:18px">
+      <button id="btn-pet">pet me 🐾</button>
+      <button id="btn-treat">give treat 🦴</button>
+      <button id="btn-work">go to work 💻</button>
+    </div>
+    <p style="font-size:.85rem">Decision logic, in short: energy + curiosity + boredom → pick a goal →
+    move smoothly there → do an idle animation → pick again. Full notes in the code comments.</p>
+  </main>
+<script>
+/*
+  AGENT DECISION LOGIC — a tiny finite-state machine, the same
+  idea as Runefold's plan → act → critic loop, but for movement.
+
+  State:  { x, y, tx, ty, mode, energy, curiosity, boredom, mood }
+  Modes:  wander | curious | thinking | excited | sleeping | idle
+  Every 2–5 seconds the agent DECIDES:
+    - if energy < 20 → sleep (restores energy)
+    - else if boredom > 70 → wander to a new random spot
+    - else if curiosity > 60 → go investigate the nearest button
+    - else if random < 0.25 → think in place (idle animation)
+    - else → idle / look around
+  Moving is smooth (lerp 0.06), never a teleport — that's the "flowy".
+  Your mouse is an INPUT, not a command: if you get close, curiosity
+  rises; if you click the agent, it gets excited; if you ignore it,
+  boredom rises. It never follows your mouse directly.
+*/
+const agent = document.getElementById('agent');
+const face = document.getElementById('face');
+const thought = document.getElementById('thought');
+const stateEl = document.getElementById('state');
+
+const S = {
+  x: innerWidth/2, y: innerHeight/2 - 80,
+  tx: innerWidth/2, ty: innerHeight/2 - 80,
+  mode: 'idle', energy: 80, curiosity: 50, boredom: 20,
+  mouseX: -999, mouseY: -999,
+};
+const FACES = { idle:'🐶', wander:'🐶', curious:'👀', thinking:'🤔', excited:'🤩', sleeping:'😴' };
+const THOUGHTS = {
+  idle: ['just vibing…', 'hmm, what next?', '*tail wag*', 'this page is comfy'],
+  wander: ['ooh, over there!', 'let me explore…', 'new spot, new me'],
+  curious: ['what does this button do?', 'you moved! interesting…', 'is that for me?'],
+  thinking: ['thinking… thinking…', 'plan: 1. wander 2. snack 3. ???', 'hmm, let me think about that'],
+  excited: ['WOOF! WOOF!', 'yes yes yes!', '*happy spins*'],
+  sleeping: ['z z z…', 'so sleepy…', '…5 more minutes…'],
+};
+function setMode(mode, tx, ty) {
+  S.mode = mode;
+  if (tx !== undefined) { S.tx = tx; S.ty = ty; }
+  agent.className = 'agent ' + mode;
+  face.textContent = FACES[mode] || '🐶';
+  stateEl.textContent = 'state: ' + mode + `  ·  energy ${Math.round(S.energy)}  ·  curiosity ${Math.round(S.curiosity)}  ·  boredom ${Math.round(S.boredom)}`;
+  const list = THOUGHTS[mode] || THOUGHTS.idle;
+  thought.textContent = list[Math.floor(Math.random()*list.length)];
+}
+function randomSpot() {
+  return [80 + Math.random()*(innerWidth-160), 80 + Math.random()*(innerHeight-160)];
+}
+function decide() {
+  // energy drains while awake, restores while sleeping
+  S.energy = S.mode === 'sleeping' ? Math.min(100, S.energy + 25) : Math.max(0, S.energy - 6);
+  S.boredom = Math.min(100, S.boredom + 8);
+  S.curiosity = Math.max(0, S.curiosity - 5);
+
+  if (S.mode === 'sleeping' && S.energy > 85) { setMode('idle'); return; }
+  if (S.energy < 20) { setMode('sleeping', S.x, S.y); return; }
+
+  const roll = Math.random();
+  if (S.curiosity > 60) {
+    // investigate the nearest button
+    const btn = document.querySelector('button');
+    const r = btn.getBoundingClientRect();
+    setMode('curious', r.left + r.width/2, r.top - 50);
+    S.curiosity = 20;
+  } else if (S.boredom > 70 || roll < 0.35) {
+    const [x,y] = randomSpot();
+    setMode('wander', x, y);
+    S.boredom = 10;
+  } else if (roll < 0.6) {
+    setMode('thinking', S.x, S.y);
+  } else {
+    setMode('idle', S.x, S.y);
+  }
+}
+// smooth movement loop — flowy, never snappy
+(function loop(){
+  S.x += (S.tx - S.x) * 0.06;
+  S.y += (S.ty - S.y) * 0.06;
+  agent.style.transform = `translate(${S.x-32}px, ${S.y-32}px)`;
+  // leave a droplet trail while wandering
+  if (S.mode === 'wander' && Math.random() < 0.25) {
+    const d = document.createElement('div');
+    d.className = 'drop';
+    d.style.left = (S.x-6)+'px'; d.style.top = (S.y-6)+'px';
+    document.body.appendChild(d);
+    setTimeout(()=>d.remove(), 800);
+  }
+  requestAnimationFrame(loop);
+})();
+setInterval(decide, 3000);
+setMode('idle');
+
+// Your mouse is an input, not a leash.
+addEventListener('mousemove', e => {
+  S.mouseX = e.clientX; S.mouseY = e.clientY;
+  const d = Math.hypot(e.clientX - S.x, e.clientY - S.y);
+  if (d < 120) S.curiosity = Math.min(100, S.curiosity + 12);
+});
+agent.addEventListener('click', () => {
+  setMode('excited', S.x, S.y);
+  S.energy = Math.min(100, S.energy + 10);
+  S.boredom = 0;
+});
+document.getElementById('btn-pet').addEventListener('click', () => {
+  setMode('excited', S.x, S.y - 20); thought.textContent = '*happy tail wag* thank you!';
+});
+document.getElementById('btn-treat').addEventListener('click', () => {
+  S.energy = 100; setMode('excited', S.x, S.y); thought.textContent = 'treat!! nom nom 🦴';
+});
+document.getElementById('btn-work').addEventListener('click', () => {
+  setMode('thinking', innerWidth/2, innerHeight/2);
+  thought.textContent = 'ok ok, focusing… plan: wander less, work more';
+  S.boredom = 0;
+});
+</script>
+</body>
+</html>

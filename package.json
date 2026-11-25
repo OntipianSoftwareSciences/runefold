@@ -1,0 +1,1 @@
+{"description":"A terminal-first AI assistant with inspectable persistent learning, TF-IDF retrieval, planning, self-critique and safe tools.","engines":{"node":">=18.0.0"},"name":"runefold-ai-adaptive","scripts":{"doctor":"node index.js --doctor","start":"node index.js","test":"node --test test.js"},"type":"module","version":"0.6.1"}

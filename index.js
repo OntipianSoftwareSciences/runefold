@@ -1,0 +1,140 @@
+#!/usr/bin/env node
+import fs from "node:fs";
+import readline from "node:readline";
+import { Agent } from "./core/agent.js";
+import { teach, listMemories, forgetMemory, addExperienceRecord, recordSkill, listSkills, consolidate, addGoal, listGoals, completeGoalStep, searchMemory } from "./core/learning.js";
+import { dataLocation, paths, readExperiences, readJournal } from "./core/store.js";
+import { startLiquidCursor, stopLiquidCursor, liquidPrompt } from "./core/cursor.js";
+
+const CONFIG_PATH = new URL("./config.json", import.meta.url);
+let config;
+try { config = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8")); } catch { console.error("Could not read config.json"); process.exit(1); }
+
+const cyan = "\x1b[96m", magenta = "\x1b[95m", green = "\x1b[92m", yellow = "\x1b[93m", dim = "\x1b[2m", reset = "\x1b[0m";
+const rl = readline.createInterface({ input: process.stdin, output: process.stdout, prompt: liquidPrompt() });
+const agent = new Agent(config);
+const ask = q => new Promise(r => rl.question(q, r));
+
+function banner() {
+  console.log(`${cyan}\n╭────────────────────────────────────────────────────╮\n│  R U N E F O L D   A I   //   ADAPTIVE CORE 0.6.1  │\n│  ${magenta}MEMORY  ◈  RETRIEVAL  ◈  PLAN  ◈  CRITIC  ◈  TOOLS${cyan}  │\n╰────────────────────────────────────────────────────╯${reset}`);
+  console.log(`${dim}Local-first terminal assistant • type /help for commands • /think uses plan + critic${reset}`);
+  console.log(`Memory store: ${dataLocation()}\n`);
+}
+function help() {
+  console.log(`
+${magenta}LEARNING${reset}
+  /teach <text>              Teach a fact / instruction
+  /memory                    List memories (with confidence)
+  /forget <id or phrase>     Delete matching memories
+  /consolidate               Sleep step: decay old low-confidence memories, merge duplicates
+  /feedback                  Record success / failure / correction
+  /experience                Show recent experiences
+  /skill <name> | <steps>    Save a reusable skill
+  /skills                    List skills
+  /goal <text> | <step1; step2>   Set a goal with steps
+  /goals                     List goals
+  /search <query>            Show what retrieval actually finds (with scores)
+  /journal                   Show recent journal entries
+${magenta}THINKING${reset}
+  /plan <task>               Plan only — break it into testable steps
+  /think <task>              Plan + answer + self-critic + one revision
+  /read <file>               Safe read of a file in this project
+  /find <text>               Safe search across project files
+  /run <command>             Only allow-listed checks, e.g. node --test test.js
+${magenta}CODEFORGE v0.1 — writes ask first, backup to .bak${reset}
+  /write <file>              Paste new content (end with END), preview, confirm
+  /edit <file> | <old> | <new>   Replace one exact match, preview, confirm
+${magenta}OTHER${reset}
+  /autolearn on|off  /status  /help  /exit
+Chat normally for a plain answer. Auto-learning only saves durable, non-sensitive statements.
+`);
+}
+function status() {
+  console.log(`Provider: ${config.provider}  Model: ${config.model}  Auto-learn: ${config.autoLearn ? "ON" : "OFF"}\nMemory: ${dataLocation()}`);
+  console.log(`Memories: ${listMemories().length} | Experiences: ${readExperiences(10000).length} | Skills: ${listSkills().length} | Goals: ${listGoals().filter(g => g.status === "active").length} active`);
+}
+async function command(line) {
+  const [cmd, ...rest] = line.trim().split(" ");
+  const arg = rest.join(" ").trim();
+  switch ((cmd || "").toLowerCase()) {
+    case "/help": help(); return true;
+    case "/teach": if (!arg) { console.log("Usage: /teach <text>"); return true; } console.log(teach(arg, "user-taught", "explicit user teaching").message); return true;
+    case "/memory": { const items = listMemories(); if (!items.length) console.log("No memories yet."); for (const x of items) console.log(`${yellow}[${x.id}]${reset} ${magenta}${x.category}${reset} conf=${(x.confidence ?? 0.6).toFixed(2)} ${x.content}`); return true; }
+    case "/forget": if (!arg) { console.log("Usage: /forget <id or phrase>"); return true; } console.log(`Deleted ${forgetMemory(arg)} matching memory item(s).`); return true;
+    case "/consolidate": { const r = consolidate(); console.log(`Consolidated: kept ${r.kept}, decayed ${r.decayed}, merged ${r.merged}. Nothing explicit was deleted silently — check /memory.`); return true; }
+    case "/feedback": {
+      const task = await ask("Task: "); const outcome = await ask("Outcome (success/failure/partial): ");
+      const notes = await ask("What happened? "); const correction = await ask("What should it do differently? (Enter to skip): ");
+      console.log(`${green}Recorded: ${addExperienceRecord({ task, outcome, notes, correction }).id}${reset}`); return true;
+    }
+    case "/experience": { const items = readExperiences(15); if (!items.length) console.log("No experiences."); for (const x of items) console.log(`${yellow}[${x.id}]${reset} ${x.outcome.toUpperCase()} — ${x.task}\n  ${x.notes}${x.correction ? `\n  Correction: ${x.correction}` : ""}`); return true; }
+    case "/skill": { const p = arg.split("|").map(x => x.trim()); if (p.length < 2) { console.log("Usage: /skill name | steps"); return true; } const s = recordSkill(p[0], p[1], p[2] || ""); console.log(`Saved skill "${s.name}" [${s.id}].`); return true; }
+    case "/skills": { const items = listSkills(); if (!items.length) console.log("No skills."); for (const s of items) console.log(`${yellow}[${s.id}]${reset} ${s.name}\n  ${s.steps}\n  Use when: ${s.whenToUse}`); return true; }
+    case "/goal": { const p = arg.split("|").map(x => x.trim()); if (!p[0]) { console.log("Usage: /goal text | step1; step2"); return true; } const g = addGoal(p[0], p[1] ? p[1].split(";").map(x => x.trim()) : []); console.log(`Goal [${g.id}]: ${g.text}`); return true; }
+    case "/goals": { const items = listGoals(); if (!items.length) console.log("No goals."); for (const g of items) console.log(`${yellow}[${g.id}]${reset} ${g.status} ${g.text} [${g.done.length}/${g.steps.length}]`); return true; }
+    case "/search": { if (!arg) { console.log("Usage: /search <query>"); return true; } const r = searchMemory(arg, 5, config); console.log("Memories:"); for (const m of r.memories) console.log(`  ${m.score.toFixed(3)} [${m.category}] ${m.content}`); console.log("Experiences:"); for (const e of r.experiences) console.log(`  ${e.score.toFixed(3)} ${e.task} (${e.outcome})`); return true; }
+    case "/journal": { for (const j of readJournal(15)) console.log(`${j.at} ${j.type} ${j.task || j.userText || ""}`); return true; }
+    case "/plan": if (!arg) { console.log("Usage: /plan <task>"); return true; } console.log(await agent.plan(arg)); return true;
+    case "/think": if (!arg) { console.log("Usage: /think <task>"); return true; } startLiquidCursor("planning + criticising"); { const r = await agent.chatWithCritic(arg); stopLiquidCursor(); console.log(`\n${green}${r.answer}${reset}\n${dim}${r.critique}${reset}\n`); } return true;
+    case "/read": if (!arg) { console.log("Usage: /read <file>"); return true; } try { console.log(agent.toolRead(arg)); } catch (e) { console.log(`Cannot read: ${e.message}`); } return true;
+    case "/find": if (!arg) { console.log("Usage: /find <text>"); return true; } console.log(agent.toolSearch(arg).join("\n") || "No matches."); return true;
+    case "/run": if (!arg) { console.log("Usage: /run <allow-listed command>"); return true; } try { console.log(await agent.toolRun(arg)); } catch (e) { console.log(`Blocked / failed: ${e.message}`); } return true;
+    case "/write": {
+      if (!arg) { console.log("Usage: /write <file>"); return true; }
+      console.log(`Writing to ${arg}. Paste content, end with a line containing only END:`);
+      const lines = [];
+      while (true) { const l = await ask(""); if (l.trim() === "END") break; lines.push(l); }
+      const content = lines.join("\n") + (lines.length ? "\n" : "");
+      console.log(`\n--- preview (${content.length} chars, first 20 lines) ---`);
+      console.log(lines.slice(0, 20).join("\n"));
+      console.log("--- end preview ---");
+      const confirm = await ask(`Write to ${arg}? Old file, if any, is backed up to ${arg}.bak. [y/N]: `);
+      if (confirm.trim().toLowerCase() !== "y") { console.log("Cancelled — nothing written."); return true; }
+      try { const r = agent.toolWrite(arg, content, { overwrite: true }); console.log(`Wrote ${r.path} (${r.bytes} bytes)${r.overwritten ? ` — old file backed up to ${r.backup}` : " — new file"}.`); }
+      catch (e) { console.log(`Cannot write: ${e.message}`); }
+      return true;
+    }
+    case "/edit": {
+      const p = arg.split("|").map(x => x.trim());
+      if (p.length < 3) { console.log("Usage: /edit <file> | <old text> | <new text>"); return true; }
+      const [file, oldText, newText] = p;
+      try {
+        const current = agent.toolRead(file);
+        if (!current.includes(oldText)) { console.log("Old text not found in that file."); return true; }
+        console.log(`In ${file}, replace:\n  - ${oldText.slice(0, 120)}\nwith:\n  + ${newText.slice(0, 120)}`);
+        const confirm = await ask("Apply this edit? [y/N]: ");
+        if (confirm.trim().toLowerCase() !== "y") { console.log("Cancelled — nothing changed."); return true; }
+        const r = agent.toolEdit(file, oldText, newText);
+        console.log(`Edited ${r.path} — backup at ${r.backup}.`);
+      } catch (e) { console.log(`Cannot edit: ${e.message}`); }
+      return true;
+    }
+    case "/autolearn": if (arg === "on") config.autoLearn = true; else if (arg === "off") config.autoLearn = false; else { console.log("Usage: /autolearn on|off"); return true; } fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2)); console.log(`Auto-learn ${config.autoLearn ? "ON" : "OFF"}.`); return true;
+    case "/status": status(); return true;
+    case "/exit": case "/quit": rl.close(); return false;
+    default: return null;
+  }
+}
+
+if (process.argv.includes("--doctor")) {
+  console.log("Node:", process.version); console.log("Config:", config); console.log("Memory:", dataLocation()); console.log("Paths:", paths());
+  console.log("Runefold doctor complete."); process.exit(0);
+}
+banner(); rl.prompt();
+rl.on("line", async line => {
+  const input = line.trim(); if (!input) return rl.prompt();
+  try {
+    if (input.startsWith("/")) {
+      const result = await command(input);
+      if (result === false) return;
+      if (result === null) console.log("Unknown command. Type /help.");
+    } else {
+      startLiquidCursor();
+      const result = await agent.chat(input, { useTools: true }); stopLiquidCursor();
+      if (result.learned) console.log(`${dim}◈ learned a durable ${result.learned.category} detail (conf ${result.learned.confidence})${reset}`);
+      console.log(`\n${green}${result.answer}${reset}\n`);
+    }
+  } catch (err) { console.log(`\n${yellow}Runefold error:${reset} ${err.message}\n`); }
+  rl.prompt();
+});
+rl.on("close", () => { console.log(`\n${cyan}Runefold session closed. Your saved learning remains on this computer.${reset}`); process.exit(0); });
