@@ -52,7 +52,7 @@ const COMING_NEXT_SPACE =
   "I cannot verify the details here.";
 const COMING_NEXT_ALIEN =
   "Local knowledge — I'm Runefold, a local-first terminal assistant with a " +
-  "tiny spiking-brain experiment. /help shows what I can do now.";
+  "tiny spiking-brain experiment. Ask 'what can you do?' to see what I can do now.";
 
 const TOPIC_RULES = TOPICS.map((t) => ({
   id: `topic-${t.topic}`,
@@ -76,6 +76,36 @@ const RULES = [
     ],
     pattern: /\b(train|faster|quicker)\b[^.]{0,40}\bfriends?\b|\bfriends?\b[^.]{0,40}\b(train|faster|quicker)\b/i,
     command: "/friends", args: "train", confidence: "medium",
+  },
+  {
+    // More specific than the plain "worm" rule: reuse the trained worm's
+    // old skill so a new smell takes fewer rounds (the real transfer demo).
+    id: "worm-transfer",
+    phrases: [
+      "show me how a worm learns a new smell faster", "worm learns a new smell faster",
+      "can a worm learn a new smell faster", "can the worm learn a new smell faster",
+      "worm transfer",
+    ],
+    pattern: /\bworm\b[^.]{0,60}\b(new smell|faster)\b/i,
+    command: "/worm", args: "transfer", confidence: "medium",
+  },
+  {
+    // Same for the fly: reuse an old skill instead of listing the templates.
+    id: "fly-transfer",
+    phrases: [
+      "show me how a fly learns a new smell faster", "fly learns a new smell faster",
+      "can the fly learn a new smell faster", "fly transfer",
+    ],
+    pattern: /\bfly\b[^.]{0,60}\b(new smell|faster)\b/i,
+    command: "/fly", args: "transfer", confidence: "medium",
+  },
+  {
+    // "Can the fly learn a new smell?" is the mushroom-body learning demo,
+    // not just the template list. An exact phrase wins over the bare fly rule.
+    id: "fly-learn-smell",
+    phrases: ["can the fly learn a new smell", "can a fly learn a new smell", "fly learn a new smell"],
+    pattern: null,
+    command: "/fly", args: "mushroom-body", confidence: "high",
   },
   {
     id: "friends",
@@ -201,9 +231,34 @@ function askOneQuestion() {
   });
 }
 
-// The tiny note printed in the terminal for a matched line.
+// The tiny note printed in the terminal for a matched line. Internal only:
+// this is what the existing command switch still receives as a fallback.
 export function heardAs(parsed) {
   return `${parsed.command || ""}${parsed.args ? " " + parsed.args : ""}`;
+}
+
+// What the USER sees in that note: the plain-text question they can type,
+// never the internal /command. Mapping is by the SAME command + args that
+// heardAs() builds, so /commands keep working while the wording stays plain.
+const PLAIN_MEANINGS = {
+  "/fly": "show me the fly",
+  "/fly mushroom-body": "show me the mushroom body",
+  "/fly worm": "show me the worm",
+  "/fly worm-transfer": "show me how a worm learns a new smell faster",
+  "/fly transfer": "show me how a fly learns a new smell faster",
+  "/worm": "show me the worm",
+  "/worm transfer": "show me how a worm learns a new smell faster",
+  "/friends": "are the fly and worm friends?",
+  "/friends train": "make them friends faster",
+  "/brain": "show me the brain",
+  "/kind": "what are your rules?",
+  "/session": "what did you learn last time?",
+  "/help": "what can you do?",
+};
+
+export function plainTextMeaning(parsed) {
+  const key = heardAs(parsed);
+  return PLAIN_MEANINGS[key] || parsed.args || "what you asked";
 }
 
 // parsePlainText(text) -> { command, args, confidence, question }
@@ -255,7 +310,10 @@ export function parsePlainText(text) {
   if (!out.available) {
     // /space, /physics and /alien are not built yet. Say so; run nothing.
     out.route = "reply";
-    out.note = `${rule.command} is not built yet — that is coming next. Source: ${rule.source}. ${rule.reply}`;
+    const label = rule.id === "alien"
+      ? "A full answer about me"
+      : (String(rule.id || "").replace(/^topic-/, "").replace(/^./, c => c.toUpperCase()) || "That topic");
+    out.note = `${label} is not built into this terminal yet — that is coming next. Source: ${rule.source}. ${rule.reply}`;
   }
   return out;
 }

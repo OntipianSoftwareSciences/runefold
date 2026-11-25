@@ -11,7 +11,7 @@ import { KINDNESS_RULES, kindnessCharterText, checkKindness } from "./core/kindn
 import { demoWorm, demoWormTransfer, wormDemoSummary } from "./core/worm.js";
 import { demoFriends } from "./core/friends.js";
 import { startSession, trackSessionEvent, closeSession, getSessionSummary, sessionSummaryText } from "./core/autosave.js";
-import { parsePlainText, heardAs } from "./core/plaintext.js";
+import { parsePlainText, heardAs, plainTextMeaning } from "./core/plaintext.js";
 
 const CONFIG_PATH = new URL("./config.json", import.meta.url);
 let config;
@@ -24,74 +24,56 @@ const ask = q => new Promise(r => rl.question(q, r));
 
 function banner() {
   console.log(`${cyan}\n╭────────────────────────────────────────────────────╮\n│  R U N E F O L D   A I   //   ADAPTIVE CORE 0.6.1  │\n│  ${magenta}MEMORY  ◈  RETRIEVAL  ◈  PLAN  ◈  CRITIC  ◈  TOOLS${cyan}  │\n╰────────────────────────────────────────────────────╯${reset}`);
-  console.log(`${dim}Local-first terminal assistant • type /help for commands • /think uses plan + critic${reset}`);
+  console.log(`${dim}Local-first terminal assistant • try asking: show me the fly • show me the worm • are the fly and worm friends? • what can you do?${reset}`);
   console.log(`Memory store: ${dataLocation()}\n`);
 }
 function help() {
   console.log(`
-${magenta}LEARNING${reset}
-  /teach <text>              Teach a fact / instruction
-  /memory                    List memories (with confidence)
-  /forget <id or phrase>     Delete matching memories
-  /consolidate               Sleep step: decay old low-confidence memories, merge duplicates
-  /feedback                  Record success / failure / correction
-  /experience                Show recent experiences
-  /skill <name> | <steps>    Save a reusable skill
-  /skills                    List skills
-  /goal <text> | <step1; step2>   Set a goal with steps
-  /goals                     List goals
-  /search <query>            Show what retrieval actually finds (with scores)
-  /journal                   Show recent journal entries
-  /session                   Show this session's learning summary (autosave is automatic)
-${magenta}THINKING${reset}
-  /plan <task>               Plan only — break it into testable steps
-  /think <task>              Plan + answer + self-critic + one revision
-  /read <file>               Safe read of a file in this project
-  /find <text>               Safe search across project files
-  /run <command>             Only allow-listed checks, e.g. node --test test.js
-${magenta}CODEFORGE v0.1 — writes ask first, backup to .bak${reset}
-  /write <file>              Paste new content (end with END), preview, confirm
-  /edit <file> | <old> | <new>   Replace one exact match, preview, confirm
-${magenta}BRAIN v0.1 — tiny spiking neurons, not the LLM${reset}
-  /brain                     Run the pink + puppy -> happy demo, print before/after
-  /brain <name>              Run a saved brain's demo (see /newbrain)
-${magenta}FLY BRAIN v0.2 — reverse-engineered fruit fly templates${reset}
-  /fly                       List the 5 fly templates + worm, and their jobs
-  /fly <name>                Run that template's demo, print before/after
-  /fly transfer              Transfer demo: a new smell learned faster
-                             from an old skill (fresh vs transferred)
-  /template list             Same list as /fly
-  /newbrain <template> <name>   Make a new brain from a template and save it
-  /transfer <saved-brain> mushroom-body <new-name>
-                             Transfer a saved trained brain to a new brain
-                             for a new smell (smell-c), save it, print rounds
-${magenta}WORM BRAIN v0.3 — OpenWorm, simplified C. elegans${reset}
-  /worm                      Run the worm demo: learning numbers + grid crawl
-  /worm transfer             A trained worm learns a new smell in fewer rounds
-  /newbrain worm <name>      Save a toy worm brain (54 neurons)
-                             /fly and /template list show it with the 5 flies
-  /transfer <saved-brain> worm <new-name>
-                             Reuse a worm's smell skill in a new worm brain
-${magenta}FRIENDSHIP SIM — fly meets worm (toy world)${reset}
-  /friends                   Fly + worm share honey and become friends in ASCII
-  /friends train             Train both brains first, then compare meetings
-${magenta}KINDNESS — Runefold is kind to every brain it uses${reset}
-  /kind                      Print the kindness charter + core values,
-                             and list the brains Runefold has made +
-                             whether they rested
-  /kind <job...>             Check a job against the charter — Runefold
-                             refuses transphobic, racist, or harmful jobs
-  /kind rest <name>          Thank a saved brain and rest it (sleep)
-${magenta}PLAIN TEXT — no slash needed${reset}
-   You can also just type in plain words — e.g. 'show me the fly', 'tell me about black holes', 'are the fly and worm friends?'
-   'fly mushroom body' -> /fly mushroom-body   ·   'train the friends' -> /friends train
-   'who are you', 'what are your rules', 'what did you learn' work too.
-   If I'm unsure, I ask one question instead of guessing. /commands still work.
-   Plain-text brain commands run locally — no Ollama needed. Normal chat still uses Ollama.
-${magenta}OTHER${reset}
-  /autolearn on|off  /status  /session  /help  /exit
-Chat normally for a plain answer. Auto-learning only saves durable, non-sensitive statements.
-Session learning saves itself every 5 minutes / 10 messages and on exit — no command needed.
+${magenta}ASK ME A QUESTION — no slash needed${reset}
+You can also just type in plain words. Here are specific questions to try:
+
+${magenta}START HERE${reset}
+  "what can you do?"                       What Runefold can do right now
+  "who are you?"                           A short local answer about me
+
+${magenta}FLY${reset}
+  "show me the fly"                        List the fly modules and their jobs
+  "show me the mushroom body"              Watch a fly learn one smell means approach
+  "can the fly learn a new smell?"         The same learning demo, asked as a question
+  "show me how a fly learns a new smell faster"   Watch a fly reuse an old skill
+
+${magenta}WORM${reset}
+  "show me the worm"                       Watch the worm learn smells and crawl a grid
+  "can the worm crawl to food?"            Watch it crawl toward food and turn at walls
+  "show me how a worm learns a new smell faster"   A trained worm reuses an old skill
+
+${magenta}FRIENDS${reset}
+  "are the fly and worm friends?"          Two toy brains share honey in a little ASCII world
+  "show me the friends"                    The same world, another way to ask
+  "make them friends faster"               Compare a pair that trained first
+
+${magenta}BRAIN${reset}
+  "show me the brain"                      The pink + puppy -> happy spiking demo
+  "what did the brain learn?"              Before and after numbers, same demo
+
+${magenta}KINDNESS${reset}
+  "what are your rules?"                   The kindness charter and the core values
+  "be kind"                                The same charter, in plain words
+
+${magenta}SESSION${reset}
+  "what did you learn last time?"          This session's learning summary
+  "what have you learned?"                 The same summary, another way to ask
+
+${magenta}SPACE — coming next${reset}
+  "tell me about black holes"              I can name the topic, but there is no live
+                                           space reference built here yet — coming next
+
+${magenta}EVERYDAY WORK${reset}
+You can ask me to turn auto-learning on or off, show your status, or close
+the session. Session learning saves itself every 5 minutes or 10 messages
+and on exit — you do not need to do anything. Ordinary chat still uses Ollama.
+
+Old /commands still work if you type them, but you don't need them.
 `);
 }
 function status() {
@@ -122,10 +104,10 @@ async function command(line) {
   const arg = rest.join(" ").trim();
   switch ((cmd || "").toLowerCase()) {
     case "/help": help(); return true;
-    case "/teach": if (!arg) { console.log("Usage: /teach <text>"); return true; } { const r = teach(arg, "user-taught", "explicit user teaching"); console.log(r.message); if (r.ok && r.item) trackSessionEvent({ type: "teach", text: arg, id: r.item.id }); } return true;
+    case "/teach": if (!arg) { console.log("Tell me what to teach, for example: I prefer pink terminals."); return true; } { const r = teach(arg, "user-taught", "explicit user teaching"); console.log(r.message); if (r.ok && r.item) trackSessionEvent({ type: "teach", text: arg, id: r.item.id }); } return true;
     case "/memory": { const items = listMemories(); if (!items.length) console.log("No memories yet."); for (const x of items) console.log(`${yellow}[${x.id}]${reset} ${magenta}${x.category}${reset} conf=${(x.confidence ?? 0.6).toFixed(2)} ${x.content}`); return true; }
-    case "/forget": if (!arg) { console.log("Usage: /forget <id or phrase>"); return true; } console.log(`Deleted ${forgetMemory(arg)} matching memory item(s).`); return true;
-    case "/consolidate": { const r = consolidate(); console.log(`Consolidated: kept ${r.kept}, decayed ${r.decayed}, merged ${r.merged}. Nothing explicit was deleted silently — check /memory.`); return true; }
+    case "/forget": if (!arg) { console.log("Tell me which memory to forget, by id or by a few words from it."); return true; } console.log(`Deleted ${forgetMemory(arg)} matching memory item(s).`); return true;
+    case "/consolidate": { const r = consolidate(); console.log(`Consolidated: kept ${r.kept}, decayed ${r.decayed}, merged ${r.merged}. Nothing explicit was deleted silently — check what you have taught me.`); return true; }
     case "/feedback": {
       const task = await ask("Task: "); const outcome = await ask("Outcome (success/failure/partial): ");
       const notes = await ask("What happened? "); const correction = await ask("What should it do differently? (Enter to skip): ");
@@ -137,19 +119,19 @@ async function command(line) {
       console.log(`${green}Recorded: ${rec.id}${reset}`); return true;
     }
     case "/experience": { const items = readExperiences(15); if (!items.length) console.log("No experiences."); for (const x of items) console.log(`${yellow}[${x.id}]${reset} ${x.outcome.toUpperCase()} — ${x.task}\n  ${x.notes}${x.correction ? `\n  Correction: ${x.correction}` : ""}`); return true; }
-    case "/skill": { const p = arg.split("|").map(x => x.trim()); if (p.length < 2) { console.log("Usage: /skill name | steps"); return true; } const s = recordSkill(p[0], p[1], p[2] || ""); console.log(`Saved skill "${s.name}" [${s.id}].`); return true; }
+    case "/skill": { const p = arg.split("|").map(x => x.trim()); if (p.length < 2) { console.log("Give a skill name and its steps, separated by a pipe."); return true; } const s = recordSkill(p[0], p[1], p[2] || ""); console.log(`Saved skill "${s.name}" [${s.id}].`); return true; }
     case "/skills": { const items = listSkills(); if (!items.length) console.log("No skills."); for (const s of items) console.log(`${yellow}[${s.id}]${reset} ${s.name}\n  ${s.steps}\n  Use when: ${s.whenToUse}`); return true; }
-    case "/goal": { const p = arg.split("|").map(x => x.trim()); if (!p[0]) { console.log("Usage: /goal text | step1; step2"); return true; } const g = addGoal(p[0], p[1] ? p[1].split(";").map(x => x.trim()) : []); console.log(`Goal [${g.id}]: ${g.text}`); return true; }
+    case "/goal": { const p = arg.split("|").map(x => x.trim()); if (!p[0]) { console.log("Give a goal and its steps, for example: finish the report | draft; review; send"); return true; } const g = addGoal(p[0], p[1] ? p[1].split(";").map(x => x.trim()) : []); console.log(`Goal [${g.id}]: ${g.text}`); return true; }
     case "/goals": { const items = listGoals(); if (!items.length) console.log("No goals."); for (const g of items) console.log(`${yellow}[${g.id}]${reset} ${g.status} ${g.text} [${g.done.length}/${g.steps.length}]`); return true; }
-    case "/search": { if (!arg) { console.log("Usage: /search <query>"); return true; } const r = searchMemory(arg, 5, config); console.log("Memories:"); for (const m of r.memories) console.log(`  ${m.score.toFixed(3)} [${m.category}] ${m.content}`); console.log("Experiences:"); for (const e of r.experiences) console.log(`  ${e.score.toFixed(3)} ${e.task} (${e.outcome})`); return true; }
+    case "/search": { if (!arg) { console.log("Tell me what to search for in your memories."); return true; } const r = searchMemory(arg, 5, config); console.log("Memories:"); for (const m of r.memories) console.log(`  ${m.score.toFixed(3)} [${m.category}] ${m.content}`); console.log("Experiences:"); for (const e of r.experiences) console.log(`  ${e.score.toFixed(3)} ${e.task} (${e.outcome})`); return true; }
     case "/journal": { for (const j of readJournal(15)) console.log(`${j.at} ${j.type} ${j.task || j.userText || ""}`); return true; }
-    case "/plan": if (!arg) { console.log("Usage: /plan <task>"); return true; } console.log(await agent.plan(arg)); return true;
-    case "/think": if (!arg) { console.log("Usage: /think <task>"); return true; } startLiquidCursor("planning + criticising"); { const r = await agent.chatWithCritic(arg); stopLiquidCursor(); console.log(`\n${green}${r.answer}${reset}\n${dim}${r.critique}${reset}\n`); } return true;
-    case "/read": if (!arg) { console.log("Usage: /read <file>"); return true; } try { console.log(agent.toolRead(arg)); } catch (e) { console.log(`Cannot read: ${e.message}`); } return true;
-    case "/find": if (!arg) { console.log("Usage: /find <text>"); return true; } console.log(agent.toolSearch(arg).join("\n") || "No matches."); return true;
-    case "/run": if (!arg) { console.log("Usage: /run <allow-listed command>"); return true; } try { console.log(await agent.toolRun(arg)); } catch (e) { console.log(`Blocked / failed: ${e.message}`); } return true;
+    case "/plan": if (!arg) { console.log("Tell me what task to break into steps."); return true; } console.log(await agent.plan(arg)); return true;
+    case "/think": if (!arg) { console.log("Tell me what task to think through."); return true; } startLiquidCursor("planning + criticising"); { const r = await agent.chatWithCritic(arg); stopLiquidCursor(); console.log(`\n${green}${r.answer}${reset}\n${dim}${r.critique}${reset}\n`); } return true;
+    case "/read": if (!arg) { console.log("Tell me which file in this project to read."); return true; } try { console.log(agent.toolRead(arg)); } catch (e) { console.log(`Cannot read: ${e.message}`); } return true;
+    case "/find": if (!arg) { console.log("Tell me what text to find in this project."); return true; } console.log(agent.toolSearch(arg).join("\n") || "No matches."); return true;
+    case "/run": if (!arg) { console.log("Tell me which allow-listed check to run, for example: node --test test.js"); return true; } try { console.log(await agent.toolRun(arg)); } catch (e) { console.log(`Blocked / failed: ${e.message}`); } return true;
     case "/write": {
-      if (!arg) { console.log("Usage: /write <file>"); return true; }
+      if (!arg) { console.log("Tell me which file to write."); return true; }
       console.log(`Writing to ${arg}. Paste content, end with a line containing only END:`);
       const lines = [];
       while (true) { const l = await ask(""); if (l.trim() === "END") break; lines.push(l); }
@@ -165,7 +147,7 @@ async function command(line) {
     }
     case "/edit": {
       const p = arg.split("|").map(x => x.trim());
-      if (p.length < 3) { console.log("Usage: /edit <file> | <old text> | <new text>"); return true; }
+      if (p.length < 3) { console.log("Give the file, the exact old text, and the new text, separated by pipes."); return true; }
       const [file, oldText, newText] = p;
       try {
         const current = agent.toolRead(file);
@@ -213,7 +195,7 @@ async function command(line) {
         for (const t of listAllTemplates()) {
           console.log(`  ${t.name} (${t.neurons} neurons) — ${t.job}${t.learnable ? " [learnable]" : ""}`);
         }
-        console.log(`${dim}Try: /fly mushroom-body   or   /fly worm   or   /fly transfer   or   /newbrain worm my-worm${reset}\n`);
+        console.log(`${dim}Try asking: show me the mushroom body   ·   can the worm crawl to food?   ·   show me how a fly learns a new smell faster${reset}\n`);
         return true;
       }
       if (arg === "worm" || arg === "worm-transfer") {
@@ -232,7 +214,7 @@ async function command(line) {
       return true;
     }
     case "/template": {
-      if (arg && arg !== "list") { console.log("Usage: /template list"); return true; }
+      if (arg && arg !== "list") { console.log("Ask 'show me the fly' to list the brain templates."); return true; }
       console.log(`\n${magenta}Brain templates — 5 fly modules + OpenWorm${reset}`);
       for (const t of listAllTemplates()) {
         console.log(`  ${t.name} (${t.neurons} neurons) — ${t.job}${t.learnable ? " [learnable]" : ""}`);
@@ -244,7 +226,7 @@ async function command(line) {
       // v0.3: the whole toy worm — learning numbers and a grid-world crawl.
       // No Ollama needed. The build inside demoWorm() goes through the
       // existing kindness gate in core/fly.js -> core/kindness.js.
-      if (arg && arg !== "transfer") { console.log("Usage: /worm  or  /worm transfer"); return true; }
+      if (arg && arg !== "transfer") { console.log("Ask: show me the worm, or show me how a worm learns a new smell faster."); return true; }
       const result = arg === "transfer" ? demoWormTransfer() : demoWorm();
       console.log(`\n${magenta}Worm brain v0.3: ${result.template} — ${result.job}${reset}`);
       for (const line of wormDemoSummary(result)) console.log(`  ${line}`);
@@ -253,7 +235,7 @@ async function command(line) {
     }
     case "/friends": {
       // Small, safe addition: only this command runs the new world.
-      if (arg && arg !== "train") { console.log("Usage: /friends  or  /friends train"); return true; }
+      if (arg && arg !== "train") { console.log("Ask: are the fly and worm friends?, or make them friends faster."); return true; }
       if (arg === "train") {
         const r = demoFriends({ compare: true });
         console.log(`\n${magenta}Fly Meets Worm — trained pair (F = fly, w = worm, H = honeycomb, * = honey, ♥ = friends)${reset}`);
@@ -273,7 +255,7 @@ async function command(line) {
     }
     case "/newbrain": {
       const parts = arg.split(/\s+/).filter(Boolean);
-      if (parts.length < 2) { console.log("Usage: /newbrain <template> <name>  e.g. /newbrain mushroom-body my-first-fly-brain"); return true; }
+      if (parts.length < 2) { console.log("Give a template and a name for the new brain, for example: mushroom-body my-first-fly-brain"); return true; }
       const [templateName, brainName] = parts;
       try {
         const brain = buildBrainFromTemplate(templateName);
@@ -284,14 +266,14 @@ async function command(line) {
         console.log(`Neurons: ${summary.neurons} | Connections: ${summary.connections}`);
         console.log(`Inputs: ${summary.inputs.join(", ")}`);
         console.log(`Outputs: ${summary.outputs.join(", ")}`);
-        console.log(`${dim}Saved in your Runefold memory store (brains.json). Run it with /brain ${brainName} or /fly ${templateName}.${reset}\n`);
+        console.log(`${dim}Saved in your Runefold memory store (brains.json). You can run it by name as ${brainName}, or ask 'show me the fly' to see the templates.${reset}\n`);
       } catch (e) { console.log(`Cannot make that brain: ${e.message}`); }
       return true;
     }
     case "/kind": {
       const parts = arg.split(/\s+/).filter(Boolean);
       if (parts[0] === "rest") {
-        if (!parts[1]) { console.log("Usage: /kind rest <name>  e.g. /kind rest my-first-fly-brain"); return true; }
+        if (!parts[1]) { console.log("Name a saved brain to thank and rest it, for example: my-first-fly-brain"); return true; }
         try {
           const r = restBrain(parts[1]);
           console.log(`\n${green}${r.thankYou}${reset}`);
@@ -314,16 +296,16 @@ async function command(line) {
       console.log(`\n${magenta}${kindnessCharterText()}${reset}`);
       const saved = listSavedBrains();
       console.log(`\n${magenta}Brains Runefold has made:${reset}`);
-      if (!saved.length) console.log("  None saved yet — try /newbrain mushroom-body my-first-fly-brain");
+      if (!saved.length) console.log("  None saved yet — try asking: show me the mushroom body");
       for (const b of saved) {
-        console.log(`  ${b.name} (${b.template}) — rested: ${b.rested ? `yes${b.restedAt ? ` (${b.restedAt})` : ""}` : "not yet — try /kind rest " + b.name}`);
+        console.log(`  ${b.name} (${b.template}) — rested: ${b.rested ? `yes${b.restedAt ? ` (${b.restedAt})` : ""}` : "not yet — ask me to thank and rest " + b.name}`);
       }
       console.log(`${dim}${KINDNESS_RULES.length} kindness rules, in core/kindness.js. A simulated brain does not feel pain like a living animal — Runefold is kind anyway.${reset}\n`);
       return true;
     }
     case "/transfer": {
       const parts = arg.split(/\s+/).filter(Boolean);
-      if (parts.length < 3) { console.log("Usage: /transfer <saved-brain> mushroom-body|worm <new-name>  e.g. /transfer my-worm worm my-new-worm"); return true; }
+      if (parts.length < 3) { console.log("Give a saved brain, a template (mushroom-body or worm), and a name for the new brain, for example: my-worm worm my-new-worm"); return true; }
       const [sourceName, newTemplate, newName] = parts;
       try {
         const r = transferSavedBrain(sourceName, newTemplate, newName);
@@ -333,11 +315,11 @@ async function command(line) {
         console.log(`New smell-c -> approach before retraining: rate ${r.beforeRate}`);
         console.log(`Training rounds to reach 80%: ${r.roundsToLearn}`);
         console.log(`New smell-c -> approach after retraining: rate ${r.afterRate}`);
-        console.log(`${dim}Saved as "${newName}". The old skill was reused; only the new smell was retrained. Compare with a fresh brain: /fly transfer.${reset}\n`);
+        console.log(`${dim}Saved as "${newName}". The old skill was reused; only the new smell was retrained. Compare with a fresh brain: show me how a fly learns a new smell faster.${reset}\n`);
       } catch (e) { console.log(`Cannot transfer: ${e.message}`); }
       return true;
     }
-    case "/autolearn": if (arg === "on") config.autoLearn = true; else if (arg === "off") config.autoLearn = false; else { console.log("Usage: /autolearn on|off"); return true; } fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2)); console.log(`Auto-learn ${config.autoLearn ? "ON" : "OFF"}.`); return true;
+    case "/autolearn": if (arg === "on") config.autoLearn = true; else if (arg === "off") config.autoLearn = false; else { console.log("Say on or off to turn auto-learning on or off."); return true; } fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2)); console.log(`Auto-learn ${config.autoLearn ? "ON" : "OFF"}.`); return true;
     case "/status": status(); return true;
     case "/session": console.log(sessionSummaryText(getSessionSummary())); return true;
     case "/exit": case "/quit": rl.close(); return false;
@@ -372,7 +354,7 @@ rl.on("line", async line => {
       const result = await command(input);
       if (result === false) return;
       if (result === null) {
-        console.log("Unknown command. Type /help.");
+        console.log("I didn't recognise that. Ask 'what can you do?' to see what I can do.");
         trackSessionEvent({ type: "command", name: cmdName, outcome: "unknown" });
       } else {
         trackSessionEvent({ type: "command", name: cmdName, outcome: "success" });
@@ -396,10 +378,11 @@ rl.on("line", async line => {
       } else if (parsed.route === "command") {
         // High / medium match: run the EXISTING command and say what we heard.
         const heard = heardAs(parsed);
-        console.log(`${dim}(I heard that as: ${heard} — tell me if I got it wrong)${reset}`);
+        const meaning = plainTextMeaning(parsed);
+        console.log(`${dim}(I heard that as: ${meaning} — tell me if I got it wrong)${reset}`);
         const result = await command(heard);
         if (result === false) return;
-        if (result === null) console.log("Unknown command. Type /help.");
+        if (result === null) console.log("I didn't recognise that. Ask 'what can you do?' to see what I can do.");
         trackSessionEvent({ type: "command", name: heard, outcome: result === null ? "unknown" : "success" });
       } else {
         // No match: normal chat. Ollama is still required here, and only here.

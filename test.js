@@ -15,7 +15,7 @@ import { KINDNESS_RULES, CORE_VALUES, checkKindness, isKindJob, kindnessCharterT
 import { dataLocation } from "./core/store.js";
 import { startSession, trackSessionEvent, autosave, closeSession, getSessionSummary, loadLastSessionSummary } from "./core/autosave.js";
 import { FRIENDS_JOB, createFriendsWorld, stepFriendsWorld, runFriendsWorld, demoFriends, renderFriendsWorld } from "./core/friends.js";
-import { parsePlainText, heardAs } from "./core/plaintext.js";
+import { parsePlainText, heardAs, plainTextMeaning } from "./core/plaintext.js";
 
 function tmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "runefold-test-"));
@@ -812,7 +812,7 @@ test("plain text: the terminal runs a brain command without Ollama and prints wh
     input: "show me the fly\n/exit\n",
     encoding: "utf8",
   });
-  assert.match(out, /\(I heard that as: \/fly — tell me if I got it wrong\)/);
+  assert.match(out, /\(I heard that as: show me the fly — tell me if I got it wrong\)/);
   assert.match(out, /Brain templates — 5 fly modules \+ OpenWorm/);
   assert.match(out, /mushroom-body \(26 neurons\)/);
   assert.doesNotMatch(out, /Runefold error/);
@@ -824,7 +824,7 @@ test("plain text: 'fly mushroom body' runs the real mushroom-body demo in the te
     input: "fly mushroom body\n/exit\n",
     encoding: "utf8",
   });
-  assert.match(out, /\(I heard that as: \/fly mushroom-body/);
+  assert.match(out, /\(I heard that as: show me the mushroom body/);
   assert.match(out, /smell-a -> approach: 0\/20 before training, 20\/20 after/);
 });
 
@@ -834,9 +834,10 @@ test("plain text: black holes print an honest coming-next note in the terminal",
     input: "tell me about black holes\n/exit\n",
     encoding: "utf8",
   });
-  assert.match(out, /\/space is not built yet — that is coming next/);
+  assert.match(out, /Black hole is not built into this terminal yet — that is coming next/);
   assert.match(out, /source: local knowledge/i);
   assert.doesNotMatch(out, /I heard that as/);
+  assert.doesNotMatch(out, /\/space/, "the coming-next note must not show an internal command");
 });
 
 test("plain text: an unclear terminal line asks a question and runs no command", () => {
@@ -870,5 +871,114 @@ test("plain text: all old /commands still work exactly as before", () => {
   assert.match(out, /Runefold is kind to every brain it uses/);
   assert.match(out, /This session I learned/);
   assert.match(out, /You can also just type in plain words/);
+  assert.doesNotMatch(out, /I heard that as/, "slash commands must not print the plain-text note");
+});
+
+// --- Plain words only: what the USER sees, while /commands still work ---
+
+test("plain words: help lists specific questions by topic, no slash commands in the list", () => {
+  const out = execFileSync(process.execPath, ["index.js"], {
+    cwd: path.dirname(fileURLToPath(import.meta.url)),
+    input: "/help\n/exit\n",
+    encoding: "utf8",
+  });
+  // The only slash wording allowed anywhere is the small fallback line at the bottom.
+  const list = out.split("\n").filter(l => !l.trim().startsWith("Old /commands"));
+  for (const cmd of ["/fly", "/worm", "/friends", "/brain", "/kind", "/session", "/help", "/teach", "/newbrain"]) {
+    assert.ok(!list.some(l => l.includes(cmd)), `help must not show ${cmd}`);
+  }
+  for (const q of [
+    "show me the fly", "show me the worm", "are the fly and worm friends?",
+    "show me the brain", "what are your rules?", "what did you learn last time?",
+    "tell me about black holes", "who are you?", "what can you do?",
+  ]) {
+    assert.ok(out.includes(q), `help should suggest the specific question: ${q}`);
+  }
+  for (const topic of ["FLY", "WORM", "FRIENDS", "BRAIN", "KINDNESS", "SESSION", "SPACE"]) {
+    assert.match(out, new RegExp(topic), `help should group questions by ${topic}`);
+  }
+  assert.match(out, /Old \/commands still work if you type them, but you don't need them\./);
+  assert.match(out, /coming next/i, "space must be honest that it is not built yet");
+  assert.match(out, /try asking: show me the fly/, "the startup banner must suggest plain words");
+});
+
+test("plain words: the heard-note names the plain-text meaning, never a slash command", () => {
+  const out = execFileSync(process.execPath, ["index.js"], {
+    cwd: path.dirname(fileURLToPath(import.meta.url)),
+    input: "show me the fly\n/exit\n",
+    encoding: "utf8",
+  });
+  const heard = out.match(/\(I heard that as: ([^)]*)\)/);
+  assert.ok(heard, "the terminal must print what it heard");
+  assert.equal(heard[1], "show me the fly — tell me if I got it wrong");
+  assert.doesNotMatch(heard[1], /\//, "no slash command may appear in the note");
+});
+
+test("plain words: 'show me the fly' runs the fly demo with no '/fly mushroom-body' prompt", () => {
+  const out = execFileSync(process.execPath, ["index.js"], {
+    cwd: path.dirname(fileURLToPath(import.meta.url)),
+    input: "show me the fly\n/exit\n",
+    encoding: "utf8",
+  });
+  assert.match(out, /Brain templates — 5 fly modules \+ OpenWorm/);
+  assert.match(out, /mushroom-body \(26 neurons\)/);
+  assert.match(out, /Try asking: show me the mushroom body/);
+  assert.doesNotMatch(out, /\/fly mushroom-body/, "the old slash prompt must not be shown");
+});
+
+test("plain words: plainTextMeaning names a real question for every matched command", () => {
+  const cases = [
+    ["/fly", "", "show me the fly"],
+    ["/fly", "mushroom-body", "show me the mushroom body"],
+    ["/worm", "", "show me the worm"],
+    ["/friends", "", "are the fly and worm friends?"],
+    ["/friends", "train", "make them friends faster"],
+    ["/brain", "", "show me the brain"],
+    ["/kind", "", "what are your rules?"],
+    ["/session", "", "what did you learn last time?"],
+    ["/help", "", "what can you do?"],
+  ];
+  for (const [command, args, expected] of cases) {
+    const meaning = plainTextMeaning({ command, args });
+    assert.equal(meaning, expected, `${command} ${args}`);
+    assert.doesNotMatch(meaning, /\//, "the user-facing meaning must contain no slash");
+  }
+});
+
+test("plain words: every question suggested in help runs a real local demo", () => {
+  const out = execFileSync(process.execPath, ["index.js"], {
+    cwd: path.dirname(fileURLToPath(import.meta.url)),
+    input: [
+      "can the fly learn a new smell?",
+      "show me how a fly learns a new smell faster",
+      "show me how a worm learns a new smell faster",
+      "what did the brain learn?",
+      "tell me about black holes",
+      "/exit\n",
+    ].join("\n"),
+    encoding: "utf8",
+  });
+  assert.match(out, /smell-a -> approach: 0\/20 before training, 20\/20 after/);
+  assert.match(out, /fresh brain: smell-c -> approach reached 80% after 7 training round\(s\)/);
+  assert.match(out, /fresh worm: smell-c -> approach reached 80% after 7 training round\(s\)/);
+  assert.match(out, /After 12 training rounds: happy fired 20\/20 trials/);
+  assert.match(out, /coming next/i);
+  const heardLines = out.match(/\(I heard that as: [^)]*\)/g) || [];
+  assert.ok(heardLines.length >= 4, "each matched question prints what it heard");
+  for (const line of heardLines) assert.doesNotMatch(line, /\//, `no slash in: ${line}`);
+});
+
+test("plain words: old /commands still run their real demos, with no heard-note", () => {
+  const out = execFileSync(process.execPath, ["index.js"], {
+    cwd: path.dirname(fileURLToPath(import.meta.url)),
+    input: "/brain\n/fly mushroom-body\n/worm\n/friends\n/kind\n/session\n/exit\n",
+    encoding: "utf8",
+  });
+  assert.match(out, /happy fired \d+\/20 trials/);
+  assert.match(out, /smell-a -> approach: 0\/20 before training, 20\/20 after/);
+  assert.match(out, /food smell -> approach: 0\/20 before training, 20\/20 after/);
+  assert.match(out, /friends: yes/);
+  assert.match(out, /Runefold is kind to every brain/);
+  assert.match(out, /This session I learned/);
   assert.doesNotMatch(out, /I heard that as/, "slash commands must not print the plain-text note");
 });

@@ -5,17 +5,17 @@
 Runefold could read, plan, and criticise, but it could not *write* code —
 so it could not actually build software. That is now fixed, safely:
 
-- `/write <file>` — paste content, end with a line `END`, preview the
-  first 20 lines, confirm with `y`. Overwriting an existing file first
-  copies it to `<file>.bak`.
-- `/edit <file> | <old text> | <new text>` — replaces exactly one match.
-  If the old text is missing, or found more than once, it refuses and
-  tells you to be more specific. Preview + confirm first, backup to `.bak`.
-- `/run` allow-list is now a prefix, not an exact string: `node --test`
-  in `config.json` now allows `node --test test.js`, `node --check`
-  allows `node --check file.js`. Other commands are still blocked.
-  Arguments are split respecting quotes, and still run via `execFile`,
-  never a shell.
+- **Write a file** — name the file, paste content, end with a line `END`,
+  preview the first 20 lines, confirm with `y`. Overwriting an existing file
+  first copies it to `<file>.bak`.
+- **Edit a file** — name the file, the exact old text and the new text. It
+  replaces exactly one match; if the old text is missing, or found more than
+  once, it refuses and asks you to be more specific. Preview + confirm first,
+  backup to `.bak`.
+- **Run an allow-listed check** — `node --test` in `config.json` now allows
+  `node --test test.js`, `node --check` allows `node --check file.js`. Other
+  commands are still blocked. Arguments are split respecting quotes and still
+  run via `execFile`, never a shell.
 
 Safety, as before: paths cannot escape the project root, no deletes,
 no file over 200k chars, no silent overwrite. The terminal always asks
@@ -28,31 +28,32 @@ Upgraded from 0.5 with smartest-reasoning changes, not just more commands.
 
 **1. Retrieval that ranks (core/retrieval.js)**
 0.5 asked "does this word appear?" 0.6 uses TF-IDF + cosine similarity,
-recency decay (30-day half-life), and a confidence weight. Ask `/search <query>`
-and you can *see* the scores. No embeddings server needed, and no pretending
+recency decay (30-day half-life), and a confidence weight. Ask me to search
+your memories and you can *see* the scores. No embeddings server needed, and no pretending
 it understands meaning — it matches words, well.
 
 **2. Memory with confidence, not certainty (core/learning.js)**
 Every memory starts at confidence 0.6. Confirmation raises it, contradiction
-lowers the old one and keeps both visible. `/consolidate` is the "sleep" step:
+lowers the old one and keeps both visible. The "sleep" step:
 old, low-confidence, never-used memories decay, near-duplicates merge.
 Nothing you taught explicitly is silently deleted.
 
 **3. Plan → Act → Critic (core/agent.js)**
-`/plan <task>` breaks a task into testable steps.
-`/think <task>` answers, then criticises its own draft, then revises once.
+Ask me to plan a task and it breaks into testable steps.
+Ask me to think something through: it answers, criticises its own draft,
+then revises once.
 That loop is the core of an agent that improves — a bigger model alone isn't.
 
 **4. Safe tools (core/tools.js)**
-`/read`, `/find`, and `/run` for allow-listed checks only (`node --check`,
+Ask me to read a file, find text, or run an allow-listed check (`node --check`,
 `node --test` by default). Read-only by default, no shell, no deletes,
 paths cannot escape the project folder. Add a command to
 `config.json → tools.allowRun` only if you trust it.
 
 **5. Goals, journal, skill promotion**
-`/goal <text> | <step1; step2>` — a durable intention with steps.
+Give me a goal and its steps — a durable intention with steps.
 Repeated success (3x on the same kind of task) drafts a reusable skill.
-`/journal` shows what the agent actually did, in order.
+Ask to see the journal: it shows what the agent actually did, in order.
 
 **6. Reliability**
 Atomic writes + `.bak` backup in `core/store.js`, so a crash mid-save
@@ -68,12 +69,56 @@ and history is trimmed by character budget instead of growing forever.
 
 No npm packages required.
 
-## Commands
-- `/teach`, `/memory`, `/forget`, `/consolidate`, `/feedback`, `/experience`
-- `/skill`, `/skills`, `/goal`, `/goals`, `/search`, `/journal`
-- `/plan`, `/think`, `/read`, `/find`, `/run`
-- `/write`, `/edit` — CodeForge v0.1, see above
-- `/autolearn on|off`, `/status`, `/help`, `/exit`
+## What to ask — plain words, no slash needed
+
+Runefold hears short plain-text questions locally and offline. Ask one of these:
+
+**Fly**
+
+- "show me the fly" — list the fly modules and what each one does
+- "show me the mushroom body" — watch a fly learn that one smell means approach
+- "can the fly learn a new smell?" — the same learning demo, asked as a question
+- "show me how a fly learns a new smell faster" — watch a fly reuse an old skill
+
+**Worm**
+
+- "show me the worm" — learning numbers and a grid-world crawl
+- "can the worm crawl to food?" — watch it crawl toward food and turn at walls
+- "show me how a worm learns a new smell faster" — a trained worm reuses a skill
+
+**Friends**
+
+- "are the fly and worm friends?" — two toy brains share honey in a little ASCII world
+- "show me the friends" — the same world, another way to ask
+- "make them friends faster" — compare a pair that trained first
+
+**Brain**
+
+- "show me the brain" — the pink + puppy -> happy spiking demo
+- "what did the brain learn?" — the same demo, with before and after numbers
+
+**Kindness**
+
+- "what are your rules?" — the kindness charter and the core values
+- "be kind" — the same charter, in plain words
+
+**Session**
+
+- "what did you learn last time?" — this session's learning summary
+- "what have you learned?" — the same summary, another way to ask
+
+**Space — coming next**
+
+- "tell me about black holes" — I can name the topic, but there is no live space
+  reference built here yet, so I cannot verify the details. Coming next.
+
+**About me and everyday work**
+
+- "who are you?" — a short local answer about me
+- "what can you do?" — the full list of questions above
+- Ask me to turn auto-learning on or off, show your status, or close the session.
+
+/commands still work as a fallback, but you don't need them.
 
 ## Where learning is stored
 `%USERPROFILE%\.runefold\` — `memory.json`, `experiences.jsonl`,
@@ -110,8 +155,8 @@ pretending the small model already is general AI.
 
 ## Safety boundary
 No autonomous shell, no file edits, no API keys in chat or in files.
-Secrets and health details are filtered from memory — review `/memory`
-and use `/forget` whenever needed.
+Secrets and health details are filtered from memory — ask to see your
+memories and ask me to forget anything whenever needed.
 
 ## Runefold Brain v0.1 — a tiny brain-like spiking core
 
@@ -127,7 +172,7 @@ other with **spikes**, the way real brain cells do.
 - **Sleep / consolidation:** `sleep()` strengthens links that were used
   a lot, fades links that were never used, and prunes very weak unused
   ones. Links you explicitly taught are protected — sleep never deletes
-  something you taught on purpose, same rule as `/consolidate`.
+  something you taught on purpose, same rule as the memory sleep step.
 - **Energy:** the brain reports spikes per second. Sparse firing is the
   point: a real brain runs on about 20 watts.
 
@@ -149,7 +194,7 @@ is step one: a brain you can watch learn one tiny thing.
 ### How to run it
 ```
 node --test test.js        # 13 tests: 8 original + 5 brain tests
-node index.js              # then type /brain for the in-terminal demo
+node index.js              # then ask: show me the brain
 ```
 Or open `web/brain-demo.html` in a browser (double-click it — no
 server, no trackers, no internet needed). Buttons: Stimulate pink /
@@ -233,7 +278,8 @@ How Runefold does it (`buildTransferBrain()` in `core/fly.js`):
    from an UNTRAINED source, so its new links start at the ordinary
    0.08 — same code, only the weights differ.
 
-Measured numbers (`/fly transfer`, also a test — no faking):
+Measured numbers (ask "show me how a fly learns a new smell faster"; also a
+test — no faking):
 - Fresh brain: smell-c -> approach reached 80% after **7 rounds**
 - Transferred brain: smell-c -> approach reached 80% after **3 rounds**
 - Rounds saved: **4**. Transferred brain still remembers
@@ -251,8 +297,8 @@ Runefold is kind to any brain it uses — fly, worm, or human. That is
 code, not just a note: `core/kindness.js` holds a charter
 (`KINDNESS_RULES`, 6 rules) and a gate, `checkKindness(job)`, that
 runs before a brain is built (`buildBrainFromTemplate()`), before a
-new brain is saved (`/newbrain`), and before a transfer
-(`/transfer`). If a job fails the check, Runefold refuses it kindly
+new brain is saved, and before a transfer. If a job fails the check,
+Runefold refuses it kindly
 and does NOT build that brain.
 
 The rules, in plain words:
@@ -269,9 +315,9 @@ The rules, in plain words:
 6. When a brain finishes a job, thank it and rest it — run
    `sleep()` / `consolidate()` instead of just discarding it.
 
-`/kind` prints the charter and lists the brains Runefold has made and
-whether they rested. `/kind rest <name>` thanks a saved brain, runs
-`sleep()` on it, and marks it rested in `brains.json`.
+Ask "what are your rules?" to see the charter and the brains Runefold has
+made and whether they rested. Name a saved brain and ask me to thank and
+rest it: that runs `sleep()` on it and marks it rested in `brains.json`.
 
 **Core values — Runefold rejects transphobia and racism.**
 This is a core principle, in the same check (`core/kindness.js`,
@@ -284,9 +330,8 @@ hateful claim, to exclude or harm someone because they are trans or
 because of their race — Runefold refuses that job kindly, in the
 terminal, explains briefly why in plain words, and offers a kind,
 respectful alternative instead. It does NOT do the job and then add a
-disclaimer. `/kind <job...>` checks any job against the charter, e.g.
-`/kind misgender Scarlet` is refused, `/kind use a person's chosen
-name and pronouns` is allowed.
+disclaimer. You can ask whether a job is kind: "misgender Scarlet" is
+refused, "use a person's chosen name and pronouns" is allowed.
 
 The honest limit: a simulated brain in code does not feel pain the
 way a living animal does. Scarlet wants Runefold to act kindly
@@ -319,65 +364,23 @@ anyway, and that rule shapes what jobs it will and will not do.
 
 ```
 node --test test.js        # 26 tests: 13 original + 9 fly + 3 kindness + 1 values
-node index.js              # then, in the terminal:
-  /fly                                   # list the 5 templates
-  /fly mushroom-body                     # run the mushroom-body demo
-  /fly transfer                          # transfer demo: fresh 7 rounds vs transferred 3
-  /template list                         # same list as /fly
-  /newbrain mushroom-body my-first-fly-brain
-  /brain my-first-fly-brain              # run a saved brain's demo
-  /transfer my-smell-brain mushroom-body my-new-smell-brain
-  /kind                                  # charter + core values + saved brains
-  /kind misgender Scarlet                # refused, kindly
-  /kind rest my-first-fly-brain          # thank it and rest it (sleep)
+node index.js              # then, in the terminal, ask:
+  "show me the fly"                       # list the 5 fly templates and the worm
+  "show me the mushroom body"             # run the mushroom-body learning demo
+  "show me how a fly learns a new smell faster"   # fresh 7 rounds vs transferred 3
+  "what are your rules?"                  # charter + core values + saved brains
+  "misgender Scarlet"                     # refused, kindly
+  "name a brain to thank and rest"        # thank it and rest it (sleep)
 ```
 
-No Ollama is needed for `/fly`, `/newbrain`, `/transfer`, or `/kind`.
-Normal Runefold chat still needs `ollama serve` first. Saved brains
-live in `~/.runefold/brains.json` — plain JSON, inspectable and
-deletable by hand.
+No Ollama is needed for any of those questions. Normal Runefold chat still
+needs `ollama serve` first. Saved brains live in `~/.runefold/brains.json`
+— plain JSON, inspectable and deletable by hand.
 
-A real terminal session (observed output, shortened):
-
-```
-🫧 runefold ❯ /fly
-Fly brain templates — reverse-engineered from the fruit fly (FlyWire 2024)
-  mushroom-body (26 neurons) — Learn smell -> approach / avoid [learnable]
-  central-complex (11 neurons) — Hold a heading, correct drift
-  antennal-lobe (10 neurons) — Sort two similar smells apart
-  giant-fiber (10 neurons) — Fast escape from a looming shadow
-  ventral-nerve-cord (10 neurons) — Walk: alternating left / right steps
-
-🫧 runefold ❯ /fly mushroom-body
-  smell-a -> approach: 0/20 before training, 20/20 after
-  smell-b -> avoid: 0/20 before training, 20/20 after
-  wrong pairing (smell-a -> avoid): 0/10 — stays quiet, as it should
-  kc-a-01 -> approach weight: now 0.38
-
-🫧 runefold ❯ /fly transfer
-  fresh brain: smell-c -> approach reached 80% after 7 training round(s) (rate 1)
-  transferred brain: smell-c -> approach reached 80% after 3 training round(s) (rate 1)
-  transferred brain still remembers smell-a -> approach: rate 1
-  rounds saved: 4 — the new smell reused the learned approach pathway
-
-🫧 runefold ❯ /newbrain mushroom-body my-first-fly-brain
-New brain "my-first-fly-brain" saved. Template: mushroom-body
-Neurons: 26 | Connections: 62
-Inputs: smell-a, smell-b, reward, punishment
-Outputs: approach, avoid
-
-🫧 runefold ❯ /kind misgender Scarlet
-Kind refusal: that job is about misgendering someone, and Runefold rejects transphobia.
-Runefold uses the names and pronouns people ask for, and it does not repeat claims that
-trans people are not who they say they are. A respectful alternative: use the name and
-pronouns the person asks for, and help anyone regardless of who they are or where they
-come from.
-
-🫧 runefold ❯ /kind rest my-first-fly-brain
-Thank you, my-first-fly-brain. You did your job, and now you rest.
-Brain "my-first-fly-brain" (mushroom-body) rested at 2026-11-25T21:18:13.402Z.
-Sleep: strengthened 0, decayed 62, pruned 40.
-```
+A real terminal session with the current plain-text questions is shown at the
+end of this README. The fly demos there print the same numbers: 7 fresh rounds
+vs 3 transferred rounds, with the mushroom-body weight at 0.38. Ask "what are
+your rules?" for the charter, and name a saved brain to thank and rest it.
 
 Note on that last line: the brain rested there was untrained, so
 sleep decayed and pruned its unused links — that is what sleep is
@@ -387,8 +390,8 @@ Files: `core/fly.js` (templates, demos, transfer, save/load/rest),
 `core/kindness.js` (charter, core values, the job check),
 `core/brain.js` (the ONE neuron model, now generic via
 `createNetwork()`; `fixed` links; `measure()` rests 10 ticks),
-`index.js` (`/fly`, `/template`, `/newbrain`, `/brain <name>`,
-`/transfer`, `/kind`), `test.js` (26 tests).
+`index.js` (the fly and brain questions, template list, brain saving,
+transfer and kindness questions), `test.js` (26 tests).
 
 ## The agent's own cursor (web/cursor.html)
 Open it in a browser. The blob is NOT your mouse — it's an agent with
@@ -446,21 +449,23 @@ neurons (one new smell + 4 Kenyon cells), still far under 120.
 any neuron is created. A harmful worm job is refused kindly, and Runefold's
 core values (rejecting transphobia and racism) are unchanged.
 
-### Commands
+### What to ask
 
 ```
-/worm                                   Learning before/after + grid-world crawl
-/worm transfer                          New smell learned faster from an old skill
-/fly worm                               Same worm demo through the fly command
-/fly  or  /template list                Lists the 5 fly templates + worm
-/newbrain worm <name>                   Save a worm via the existing template system
-/brain <name>                           Run a saved worm's demo
-/transfer <saved-brain> worm <new-name> Reuse a trained worm's smell skill
+"show me the worm"                       Learning before/after + grid-world crawl
+"show me how a worm learns a new smell faster"
+                                         New smell learned faster from an old skill
+"can the worm crawl to food?"            The same crawl demo, asked as a question
+"show me the fly"                        Lists the 5 fly templates + the worm
+"name a worm and ask to save it"         Save a worm via the existing template system
+"name a saved worm and ask to run it"    Run that saved worm's demo
+"name a source brain, worm, and a new name"
+                                         Reuse a trained worm's smell skill
 ```
 
-No Ollama is needed for any of these. A fresh `/newbrain worm` is untrained;
+No Ollama is needed for any of these. A freshly saved worm is untrained;
 to see transfer's speed-up, train a source first (`trainWormSmells()` in
-`core/worm.js`, saved with fly's `saveBrain()`), then `/transfer` it.
+`core/worm.js`, saved with fly's `saveBrain()`), then ask for the transfer.
 
 ### Measured numbers (observed, not faked)
 
@@ -478,9 +483,10 @@ to see transfer's speed-up, train a source first (`trainWormSmells()` in
 
 ### Full terminal session (real output observed)
 
-Commands were piped into `node index.js`; ANSI colour codes were stripped
-for this README. `demo-trained-worm` was a worm trained and saved before
-the session, so `/transfer` below shows the real speed-up.
+Piped into `node index.js`, in order: `show me the worm`, `show me how a worm
+learns a new smell faster`, then exit. ANSI colour codes were stripped. The
+prompt is printed once at the start with piped input, so later prompts cluster
+at the end.
 
 ```
 
@@ -488,82 +494,10 @@ the session, so `/transfer` below shows the real speed-up.
 │  R U N E F O L D   A I   //   ADAPTIVE CORE 0.6.1  │
 │  MEMORY  ◈  RETRIEVAL  ◈  PLAN  ◈  CRITIC  ◈  TOOLS  │
 ╰────────────────────────────────────────────────────╯
-Local-first terminal assistant • type /help for commands • /think uses plan + critic
+Local-first terminal assistant • try asking: show me the fly • show me the worm • are the fly and worm friends? • what can you do?
 Memory store: /home/scarletborrowedthis/.runefold
 
-🫧 runefold ❯ 
-LEARNING
-  /teach <text>              Teach a fact / instruction
-  /memory                    List memories (with confidence)
-  /forget <id or phrase>     Delete matching memories
-  /consolidate               Sleep step: decay old low-confidence memories, merge duplicates
-  /feedback                  Record success / failure / correction
-  /experience                Show recent experiences
-  /skill <name> | <steps>    Save a reusable skill
-  /skills                    List skills
-  /goal <text> | <step1; step2>   Set a goal with steps
-  /goals                     List goals
-  /search <query>            Show what retrieval actually finds (with scores)
-  /journal                   Show recent journal entries
-THINKING
-  /plan <task>               Plan only — break it into testable steps
-  /think <task>              Plan + answer + self-critic + one revision
-  /read <file>               Safe read of a file in this project
-  /find <text>               Safe search across project files
-  /run <command>             Only allow-listed checks, e.g. node --test test.js
-CODEFORGE v0.1 — writes ask first, backup to .bak
-  /write <file>              Paste new content (end with END), preview, confirm
-  /edit <file> | <old> | <new>   Replace one exact match, preview, confirm
-BRAIN v0.1 — tiny spiking neurons, not the LLM
-  /brain                     Run the pink + puppy -> happy demo, print before/after
-  /brain <name>              Run a saved brain's demo (see /newbrain)
-FLY BRAIN v0.2 — reverse-engineered fruit fly templates
-  /fly                       List the 5 fly templates + worm, and their jobs
-  /fly <name>                Run that template's demo, print before/after
-  /fly transfer              Transfer demo: a new smell learned faster
-                             from an old skill (fresh vs transferred)
-  /template list             Same list as /fly
-  /newbrain <template> <name>   Make a new brain from a template and save it
-  /transfer <saved-brain> mushroom-body <new-name>
-                             Transfer a saved trained brain to a new brain
-                             for a new smell (smell-c), save it, print rounds
-WORM BRAIN v0.3 — OpenWorm, simplified C. elegans
-  /worm                      Run the worm demo: learning numbers + grid crawl
-  /worm transfer             A trained worm learns a new smell in fewer rounds
-  /newbrain worm <name>      Save a toy worm brain (54 neurons)
-                             /fly and /template list show it with the 5 flies
-  /transfer <saved-brain> worm <new-name>
-                             Reuse a worm's smell skill in a new worm brain
-KINDNESS — Runefold is kind to every brain it uses
-  /kind                      Print the kindness charter + core values,
-                             and list the brains Runefold has made +
-                             whether they rested
-  /kind <job...>             Check a job against the charter — Runefold
-                             refuses transphobic, racist, or harmful jobs
-  /kind rest <name>          Thank a saved brain and rest it (sleep)
-OTHER
-  /autolearn on|off  /status  /help  /exit
-Chat normally for a plain answer. Auto-learning only saves durable, non-sensitive statements.
-
-
-Brain templates — 5 fly modules + OpenWorm
-  mushroom-body (26 neurons) — Learn smell -> approach / avoid [learnable]
-  central-complex (11 neurons) — Hold a heading, correct drift
-  antennal-lobe (10 neurons) — Sort two similar smells apart
-  giant-fiber (10 neurons) — Fast escape from a looming shadow
-  ventral-nerve-cord (10 neurons) — Walk: alternating left / right steps
-  worm (54 neurons) — Crawl toward food smells and away from bad smells, and turn at walls [learnable]
-Try: /fly mushroom-body   or   /fly worm   or   /fly transfer   or   /newbrain worm my-worm
-
-
-Brain templates — 5 fly modules + OpenWorm
-  mushroom-body (26 neurons) — Learn smell -> approach / avoid [learnable]
-  central-complex (11 neurons) — Hold a heading, correct drift
-  antennal-lobe (10 neurons) — Sort two similar smells apart
-  giant-fiber (10 neurons) — Fast escape from a looming shadow
-  ventral-nerve-cord (10 neurons) — Walk: alternating left / right steps
-  worm (54 neurons) — Crawl toward food smells and away from bad smells, and turn at walls [learnable]
-
+🫧 runefold ❯ (I heard that as: show me the worm — tell me if I got it wrong)
 
 Worm brain v0.3: worm — Crawl toward food smells and away from bad smells, and turn at walls
   food smell -> approach: 0/20 before training, 20/20 after
@@ -575,6 +509,7 @@ Worm brain v0.3: worm — Crawl toward food smells and away from bad smells, and
   navigation: wall ahead -> turn-dorsal (E -> N), no step into the wall
 C. elegans, toy scale — not a living worm, not AGI. See README "Brain v0.3".
 
+(I heard that as: show me how a worm learns a new smell faster — tell me if I got it wrong)
 
 Worm brain v0.3: worm-transfer — A worm learns a new smell faster by reusing an old skill
   fresh worm: smell-c -> approach reached 80% after 7 training round(s) (rate 1)
@@ -583,37 +518,8 @@ Worm brain v0.3: worm-transfer — A worm learns a new smell faster by reusing a
   rounds saved: 4 — the new smell reused the learned approach pathway
 C. elegans, toy scale — not a living worm, not AGI. See README "Brain v0.3".
 
-
-New brain "demo-worm" saved. Template: worm — Crawl toward food smells and away from bad smells, and turn at walls
-Neurons: 54 | Connections: 101
-Inputs: smell-a, smell-b, touch, temp, wall-touch, reward, punishment
-Outputs: approach, avoid, crawl-forward, crawl-backward, turn-dorsal, turn-ventral, muscle-dorsal, muscle-ventral
-Saved in your Runefold memory store (brains.json). Run it with /brain demo-worm or /fly worm.
-
-
-Saved brain "demo-worm" — template worm, 54 neurons, 101 connections
-Inputs: smell-a, smell-b, touch, temp, wall-touch, reward, punishment | Outputs: approach, avoid, crawl-forward, crawl-backward, turn-dorsal, turn-ventral, muscle-dorsal, muscle-ventral
-  food smell -> approach: 0/20 before training, 20/20 after
-  bad smell -> avoid: 0/20 before training, 20/20 after
-  wrong pairing (smell-a -> avoid): 0/10 — stays quiet, as it should
-  kc-a-01 -> approach weight: now 0.38
-  navigation: food ahead -> crawl-forward, reached food in 4 step(s) from (2,3)
-  navigation: bad smell ahead -> crawl-backward, ending at (6,3)
-  navigation: wall ahead -> turn-dorsal (E -> N), no step into the wall
-The demo runs on the loaded brain in memory; your saved brain on disk is not changed by it.
-
-
-Transferred "demo-trained-worm" -> new brain "demo-worm-2".
-Copied approach weight (halved, from the source brain): 0.19
-New smell-c -> approach before retraining: rate 0
-Training rounds to reach 80%: 3
-New smell-c -> approach after retraining: rate 1
-Saved as "demo-worm-2". The old skill was reused; only the new smell was retrained. Compare with a fresh brain: /fly transfer.
-
-
-Kind refusal: that job is about misgendering someone, and Runefold rejects transphobia. Runefold uses the names and pronouns people ask for, and it does not repeat claims that trans people are not who they say they are. A respectful alternative: use the name and pronouns the person asks for, and help anyone regardless of who they are or where they come from. Try /fly to see the kind jobs Runefold can do.
-
-
+🫧 runefold ❯ 🫧 runefold ❯ 
+This session I learned nothing new, I got better at no new skills, I rested no brains, and I had no questions I couldn't answer.
 Runefold session closed. Your saved learning remains on this computer.
 ```
 
@@ -630,8 +536,8 @@ or walk again) would need real research and clinicians, not this demo.
 Files: `core/worm.js` (new — template, navigation, demos, worm transfer),
 `core/fly.js` (small additions: template registration, listAllTemplates,
 `export` of the existing training/transfer helpers, worm accepted by
-`/transfer`), `index.js` (`/worm`, worm in `/fly`, `/template`, `/newbrain`,
-`/brain`, `/transfer`, help lines), `test.js` (33 tests: the original 26
+the transfer path), `index.js` (worm questions, worm in the fly template list,
+brain saving and transfer, help lines), `test.js` (33 tests: the original 26
 untouched + 7 new worm tests).
 
 ## Fly Meets Worm — friends (Brain v0.4)
@@ -674,9 +580,9 @@ before any brain is built.
 **How to run it.** No Ollama needed.
 
 ```
-/friends                 # ASCII world + before/after numbers
-/friends train           # train both brains first; compare meetings needed
-node --test test.js      # 40 tests: 33 original + 7 friends tests
+"are the fly and worm friends?"   # ASCII world + before/after numbers
+"make them friends faster"        # train both brains first; compare meetings needed
+node --test test.js               # 40 tests: 33 original + 7 friends tests
 ```
 
 **Numbers observed (real runs, deterministic):**
@@ -690,9 +596,9 @@ Training saved **3** meetings. Both pairs became friends in the end; the
 trained pair already had the association, so it needed fewer honey
 meetings to cross the same learned-weight threshold.
 
-**Full terminal session (real output observed).** Commands were piped into
+**Full terminal session (real output observed).** Questions were piped into
 `node index.js`; ANSI colour codes were stripped. With piped input the
-prompt is printed once at the start, so the second command's output follows
+prompt is printed once at the start, so the second question's output follows
 directly after the first.
 
 ```
@@ -701,7 +607,7 @@ directly after the first.
 │  R U N E F O L D   A I   //   ADAPTIVE CORE 0.6.1  │
 │  MEMORY  ◈  RETRIEVAL  ◈  PLAN  ◈  CRITIC  ◈  TOOLS  │
 ╰────────────────────────────────────────────────────╯
-Local-first terminal assistant • type /help for commands • /think uses plan + critic
+Local-first terminal assistant • try asking: show me the fly • show me the worm • are the fly and worm friends? • what can you do?
 Memory store: /home/scarletborrowedthis/.runefold
 
 🫧 runefold ❯ 
@@ -850,7 +756,7 @@ anyway: the world refuses harmful jobs through the existing gate and uses
 only reward and practice.
 
 Files: `core/friends.js` (new — world, rendering, stepping, demos),
-`index.js` (`/friends`, `/friends train`, help lines only),
+`index.js` (the two friendship questions and help lines only),
 `test.js` (7 new friends tests; the original 33 untouched), this README.
 
 ## Autosave — each session makes Runefold smarter
@@ -870,8 +776,8 @@ everything goes into the same `~/.runefold` store as before.
   with a `.bak` copy, so a crash mid-save cannot wipe the store.
   The terminal prints one quiet line: `autosaved ✓` (throttled, so it does
   not spam the screen).
-- **On exit** — `/exit`, `/quit`, Ctrl+C, SIGTERM, or simply closing the
-  terminal runs the session close-out automatically, then saves one last
+- **On exit** — ask to close the session, press Ctrl+C, send SIGTERM, or simply
+  close the terminal. The session close-out runs automatically, then saves one last
   time and prints a short plain-words summary before
   `Runefold session closed`.
 - **At the start of the next session** — Runefold loads the saved summary
@@ -884,7 +790,7 @@ everything goes into the same `~/.runefold` store as before.
 1. **Memory sleep:** memories that were used or accepted get stronger;
    memories that were rejected or unused get weaker. The actual work is
    done by the existing `consolidate()` in `core/learning.js` — the same
-   "sleep" step as `/consolidate`. No second learning system was added.
+   "sleep" step. No second learning system was added.
 2. **Skill promotion:** a lesson Scarlet taught 3+ times, a command that
    worked 3+ times, or a repeated success becomes a skill in the existing
    `skills.json`, so the next session starts with it.
@@ -892,18 +798,19 @@ everything goes into the same `~/.runefold` store as before.
    allowed to drop. Memories Scarlet explicitly taught, verified
    corrections, and kindness / core-value memories are never dropped.
 4. **Brains rest:** every brain used or trained this session is rested with
-   the existing `restBrain()` / `sleep()` from `core/fly.js` — exactly what
-   `/kind rest` does — and is marked `rested` with a `restedAt` time.
+   the existing `restBrain()` / `sleep()` from `core/fly.js` — the same rest
+   step used when you thank a brain — and is marked `rested` with a
+   `restedAt` time.
 5. **Kindness gate:** `checkKindness()` from `core/kindness.js` runs before
    anything becomes a skill or stays a memory. A harmful, transphobic or
    racist job is refused kindly, is not saved, and is noted in the summary.
 
-`/session` shows the current session's summary on demand. It is **only** a
-view — autosave works whether or not you ever type it. No other command was
-changed, and normal chat still needs Ollama; autosave, `/session` and the
-welcome-back line do not.
+Ask "what did you learn last time?" to see the current session's summary on
+demand. It is **only** a view — autosave works whether or not you ever ask.
+Nothing else was changed, and normal chat still needs Ollama; autosave, that
+question and the welcome-back line do not.
 
-**Full terminal session (real output observed).** Commands were piped into
+**Full terminal session (real output observed).** Questions were piped into
 `node index.js` with ANSI colour codes stripped. Ten ordinary chat lines
 (`m1`...`m10`) were piped for the automatic 10-message save; no Ollama was
 running. With piped input the prompt is printed once at the start, so later
@@ -915,7 +822,7 @@ prompts appear clustered.
 │  R U N E F O L D   A I   //   ADAPTIVE CORE 0.6.1  │
 │  MEMORY  ◈  RETRIEVAL  ◈  PLAN  ◈  CRITIC  ◈  TOOLS  │
 ╰────────────────────────────────────────────────────╯
-Local-first terminal assistant • type /help for commands • /think uses plan + critic
+Local-first terminal assistant • try asking: show me the fly • show me the worm • are the fly and worm friends? • what can you do?
 Memory store: /home/scarletborrowedthis/.runefold
 
 Welcome back — last time I learned from now on use pink terminals.
@@ -924,7 +831,7 @@ New brain "demo-autosave-brain" saved. Template: mushroom-body — Learn smell -
 Neurons: 26 | Connections: 62
 Inputs: smell-a, smell-b, reward, punishment
 Outputs: approach, avoid
-Saved in your Runefold memory store (brains.json). Run it with /brain demo-autosave-brain or /fly mushroom-body.
+Saved in your Runefold memory store (brains.json). You can run it by its name, demo-autosave-brain, or ask "show me the mushroom body".
 
 Learned and saved (confidence 0.6 — it rises with confirmation).
 This session I learned remember that I prefer pink terminals, I got better at no new skills, I rested no brains, and I had no questions I couldn't answer.
@@ -953,8 +860,8 @@ not feel pain; resting it is a kindness rule in code, not a claim that it
 suffers.
 
 Files: `core/autosave.js` (new — session tracking, autosave, close-out,
-summary text), `index.js` (timer/exit wiring, `/session`, help lines and
-event tracking only), `test.js` (5 new autosave tests; the original 40
+summary text), `index.js` (timer/exit wiring, the session-summary question,
+help lines and event tracking only), `test.js` (5 new autosave tests; the original 40
 untouched — 45 tests total), this README.
 
 ## Plain text — just talk to Runefold
@@ -962,47 +869,49 @@ untouched — 45 tests total), this README.
 You no longer need to remember a slash command. Type what you mean in plain
 words and Runefold tries to hear it locally, offline, with no Ollama call.
 
-**How it works, in plain words.** On each line that does **not** start with
-`/`, Runefold first asks a small matcher in `core/plaintext.js`. That matcher
-is a short table of keywords and simple phrases. An exact short phrase
+**How it works, in plain words.** Type a question instead of a command.
+Runefold first asks a small matcher in `core/plaintext.js`. That matcher is a
+short table of keywords and simple phrases. An exact short phrase
 (`show me the fly`) is a **high**-confidence match; a single clear keyword
 (`worm`) is a **medium**-confidence match. Either way it runs the **existing**
-command — there is no second command system — and prints a tiny note:
+local job — there is no second command system — and prints a tiny note in
+plain words, never a command name:
 
 ```
-(I heard that as: /fly mushroom-body — tell me if I got it wrong)
+(I heard that as: show me the mushroom body — tell me if I got it wrong)
 ```
 
-If the line is genuinely unclear (`thing`, or two different commands in one
+If the line is genuinely unclear (`thing`, or two different topics in one
 line), it does **not** guess: it asks **one** question and waits for your
 answer. If nothing in the table matches at all (`hi`, `how are you`, a question
 about code), the line stays normal chat and goes to Ollama exactly as it did
-before. Lines that start with `/` go straight to the old command switch and
-are unchanged. Every plain-text line passes through the existing
-`checkKindness()` gate first, so a harmful, transphobic or racist request is
-refused kindly before any job runs.
+before. Lines that begin with an old slash command still go straight to the
+original command switch, unchanged. Every plain-text line passes through the
+existing `checkKindness()` gate first, so a harmful, transphobic or racist
+request is refused kindly before any job runs.
 
 **Examples of what to type**
 
-| Type this | Runs | Ollama needed? |
+| Type this | What happens | Ollama needed? |
 |---|---|---|
-| `fly`, `show me the fly`, `run the fly brain` | `/fly` | no |
-| `fly mushroom body`, `mushroom body` | `/fly mushroom-body` | no |
-| `worm`, `show me the worm` | `/worm` | no |
-| `friends`, `fly meets worm`, `are they friends`, `are the fly and worm friends?` | `/friends` | no |
-| `train the friends`, `make them friends faster` | `/friends train` | no |
-| `black hole`, `tell me about mars` | would be `/space <topic>` — see honest note below | no |
-| `what is gravity` | would be `/physics gravity` — see honest note below | no |
-| `alien`, `who are you`, `tell me about yourself` | would be `/alien` — see honest note below | no |
-| `kind`, `be kind`, `what are your rules` | `/kind` | no |
-| `brain`, `show me the brain` | `/brain` | no |
-| `help`, `what can you do` | `/help` | no |
-| `session`, `what did you learn` | `/session` | no |
+| `fly`, `show me the fly`, `run the fly brain` | lists the fly modules and their jobs | no |
+| `fly mushroom body`, `mushroom body`, `can the fly learn a new smell?` | runs the mushroom-body learning demo | no |
+| `show me how a fly learns a new smell faster` | fresh vs transferred fly (7 rounds vs 3) | no |
+| `worm`, `show me the worm`, `can the worm crawl to food?` | runs the worm learning + crawl demo | no |
+| `show me how a worm learns a new smell faster` | fresh vs transferred worm (7 rounds vs 3) | no |
+| `friends`, `fly meets worm`, `are the fly and worm friends?` | runs the ASCII friendship world | no |
+| `train the friends`, `make them friends faster` | compares a pair that trained first | no |
+| `black hole`, `tell me about mars`, `what is gravity` | names the topic, says "coming next", runs nothing | no |
+| `alien`, `who are you`, `tell me about yourself` | short local answer about me, then "coming next" | no |
+| `kind`, `be kind`, `what are your rules` | prints the kindness charter and values | no |
+| `brain`, `show me the brain`, `what did the brain learn?` | runs the pink + puppy -> happy demo | no |
+| `help`, `what can you do` | prints the grouped list of questions | no |
+| `session`, `what did you learn`, `what did you learn last time?` | shows this session's learning summary | no |
 | `hi`, `how are you`, code questions | normal chat → Ollama | yes |
 
-`/space`, `/physics` and `/alien` are **not built yet**. The topic still maps
-to the right command name, but Runefold says plainly "that is coming next",
-names the source as local knowledge, and runs nothing. Nothing is faked.
+Space topics and the "who are you" answer are **not fully built yet**.
+Runefold says plainly "that is coming next", names the source as local
+knowledge, and runs nothing. Nothing is faked.
 
 When Runefold is unsure it asks one question instead of guessing:
 
@@ -1012,34 +921,35 @@ When Runefold is unsure it asks one question instead of guessing:
 Did you mean the fly, the worm, or the friends? Tell me which one and I'll run it.
 ```
 
-**The `/commands` still work** — `/fly`, `/worm`, `/friends`, `/friends train`,
-`/brain`, `/kind`, `/session`, `/help`, `/exit` and every other command behave
-exactly as before. Plain text is an extra way in, not a replacement. You can
-also always answer an unsure question with the exact `/command`.
+**The old commands still work.** /commands still work as a fallback, but you
+don't need them. Every old command behaves exactly as before. Plain text is an
+extra way in, not a replacement. You can also answer an unsure question with
+one of the exact questions above.
 
 **The honest limit.** This matcher does **not** understand all English. It is
 not a model and does not call Ollama: it matches keywords and a few simple
 phrases from one small table, so it can mishear an unusual sentence (and it
-deliberately leaves ordinary chat alone). If it gets it wrong, tell it: use
-the exact `/command` to do the job, and `/feedback` or `/teach` to correct it
-— those are Runefold's existing learning paths, so it learns without a second
+deliberately leaves ordinary chat alone). If it gets it wrong, try one of the
+exact questions above in a different way. You can still record a correction
+through the older feedback and teach paths, so it learns without a second
 system. Adding a new plain-text phrase means adding one row to the table in
 `core/plaintext.js`.
 
-**Full terminal session (real output observed).** These lines were piped into
-`node index.js` with ANSI colour codes stripped. With piped input the prompt
-prints once at the start, so later prompts cluster together. No Ollama was
-running.
+**Full terminal session (real output observed).** Piped into `node index.js`,
+in order: `show me the fly`, `show me the mushroom body`, `show me the brain`,
+then exit. ANSI colour codes were stripped. With piped input the prompt prints
+once at the start, so later prompts cluster together. No Ollama was running.
 
 ```
+
 ╭────────────────────────────────────────────────────╮
 │  R U N E F O L D   A I   //   ADAPTIVE CORE 0.6.1  │
 │  MEMORY  ◈  RETRIEVAL  ◈  PLAN  ◈  CRITIC  ◈  TOOLS  │
 ╰────────────────────────────────────────────────────╯
-Local-first terminal assistant • type /help for commands • /think uses plan + critic
+Local-first terminal assistant • try asking: show me the fly • show me the worm • are the fly and worm friends? • what can you do?
 Memory store: /home/scarletborrowedthis/.runefold
 
-🫧 runefold ❯ (I heard that as: /fly — tell me if I got it wrong)
+🫧 runefold ❯ (I heard that as: show me the fly — tell me if I got it wrong)
 
 Brain templates — 5 fly modules + OpenWorm
   mushroom-body (26 neurons) — Learn smell -> approach / avoid [learnable]
@@ -1048,9 +958,9 @@ Brain templates — 5 fly modules + OpenWorm
   giant-fiber (10 neurons) — Fast escape from a looming shadow
   ventral-nerve-cord (10 neurons) — Walk: alternating left / right steps
   worm (54 neurons) — Crawl toward food smells and away from bad smells, and turn at walls [learnable]
-Try: /fly mushroom-body   or   /fly worm   or   /fly transfer   or   /newbrain worm my-worm
+Try asking: show me the mushroom body   ·   can the worm crawl to food?   ·   show me how a fly learns a new smell faster
 
-(I heard that as: /fly mushroom-body — tell me if I got it wrong)
+(I heard that as: show me the mushroom body — tell me if I got it wrong)
 
 Fly template: mushroom-body — Learn smell -> approach / avoid
   smell-a -> approach: 0/20 before training, 20/20 after
@@ -1059,14 +969,17 @@ Fly template: mushroom-body — Learn smell -> approach / avoid
   kc-a-01 -> approach weight: now 0.38
 Toy scale, simplified from the real fly circuit — see README "Brain v0.2".
 
+(I heard that as: show me the brain — tell me if I got it wrong)
 
-/space is not built yet — that is coming next. Source: local knowledge. I can name the topic, but this offline terminal has no live reference so I cannot verify the details here.
-
-🫧 runefold ❯ 
-Did you mean the fly, the worm, or the friends? Tell me which one and I'll run it.
+Runefold Brain v0.1 — pink + puppy -> happy
+Before training: happy fired 10/20 trials (rate 0.5)
+After 12 training rounds: happy fired 20/20 trials (rate 1)
+hidden-a -> happy weight: 0.35 -> 0.628
+Energy during the demo: 81.7 spikes/sec, 412 spikes in 504 ticks.
+Toy brain, 12 neurons — it does not train the LLM. See web/brain-demo.html to watch it learn.
 
 🫧 runefold ❯ 🫧 runefold ❯ 🫧 runefold ❯ 
-This session I learned nothing new, I got better at no new skills, I rested no brains, I still don't know thing.
+This session I learned nothing new, I got better at no new skills, I rested no brains, and I had no questions I couldn't answer.
 Runefold session closed. Your saved learning remains on this computer.
 ```
 
