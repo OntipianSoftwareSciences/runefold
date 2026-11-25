@@ -5,6 +5,7 @@ import { Agent } from "./core/agent.js";
 import { teach, listMemories, forgetMemory, addExperienceRecord, recordSkill, listSkills, consolidate, addGoal, listGoals, completeGoalStep, searchMemory } from "./core/learning.js";
 import { dataLocation, paths, readExperiences, readJournal } from "./core/store.js";
 import { startLiquidCursor, stopLiquidCursor, liquidPrompt } from "./core/cursor.js";
+import { demoBrain } from "./core/brain.js";
 
 const CONFIG_PATH = new URL("./config.json", import.meta.url);
 let config;
@@ -44,6 +45,8 @@ ${magenta}THINKING${reset}
 ${magenta}CODEFORGE v0.1 — writes ask first, backup to .bak${reset}
   /write <file>              Paste new content (end with END), preview, confirm
   /edit <file> | <old> | <new>   Replace one exact match, preview, confirm
+${magenta}BRAIN v0.1 — tiny spiking neurons, not the LLM${reset}
+  /brain                     Run the pink + puppy -> happy demo, print before/after
 ${magenta}OTHER${reset}
   /autolearn on|off  /status  /help  /exit
 Chat normally for a plain answer. Auto-learning only saves durable, non-sensitive statements.
@@ -107,6 +110,16 @@ async function command(line) {
         const r = agent.toolEdit(file, oldText, newText);
         console.log(`Edited ${r.path} — backup at ${r.backup}.`);
       } catch (e) { console.log(`Cannot edit: ${e.message}`); }
+      return true;
+    }
+    case "/brain": {
+      const d = demoBrain();
+      console.log(`\n${magenta}Runefold Brain v0.1 — pink + puppy -> happy${reset}`);
+      console.log(`Before training: happy fired ${d.before.spikes}/${d.before.steps} trials (rate ${d.before.rate})`);
+      console.log(`After 12 training rounds: happy fired ${d.after.spikes}/${d.after.steps} trials (rate ${d.after.rate})`);
+      console.log(`hidden-a -> happy weight: ${d.weightBefore} -> ${d.weightAfter}`);
+      console.log(`Energy during the demo: ${d.spikesPerSecond} spikes/sec, ${d.totalSpikes} spikes in ${d.ticks} ticks.`);
+      console.log(`${dim}Toy brain, 12 neurons — it does not train the LLM. See web/brain-demo.html to watch it learn.${reset}\n`);
       return true;
     }
     case "/autolearn": if (arg === "on") config.autoLearn = true; else if (arg === "off") config.autoLearn = false; else { console.log("Usage: /autolearn on|off"); return true; } fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2)); console.log(`Auto-learn ${config.autoLearn ? "ON" : "OFF"}.`); return true;

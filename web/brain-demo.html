@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Runefold Brain v0.1 — a tiny brain you can watch learn</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #FFF7F2; color: #2B2330; font-family: system-ui, sans-serif; }
+  main { max-width: 820px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { color: #D94F7A; margin: 0 0 4px; }
+  p.lead { color: #6B6470; margin-top: 0; }
+  .card { background: #fff; border: 2px solid #F0DDE6; border-radius: 16px; padding: 16px; margin: 16px 0; }
+  canvas { width: 100%; height: auto; display: block; background: #FFF7F2; border-radius: 12px; }
+  .buttons { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+  button { background: #FF6B9D; color: #fff; border: none; border-radius: 999px; padding: 10px 16px; font-size: 15px; cursor: pointer; }
+  button.secondary { background: #F2A93B; }
+  button.ghost { background: #fff; color: #D94F7A; border: 2px solid #FF6B9D; }
+  button:hover { filter: brightness(1.05); }
+  #stats { font-size: 18px; font-weight: 600; }
+  #stats span { color: #D94F7A; }
+  #log { background: #2B2330; color: #FFF7F2; border-radius: 12px; padding: 12px 14px; height: 150px; overflow-y: auto; font-family: monospace; font-size: 13px; line-height: 1.5; white-space: pre-wrap; }
+  h2 { color: #D94F7A; margin-bottom: 4px; }
+  .warn { background: #FFE9F0; border-left: 4px solid #FF6B9D; padding: 10px 14px; border-radius: 8px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>🧠 Runefold Brain v0.1</h1>
+  <p class="lead">A tiny brain made of spiking neurons. Watch it learn that <b>pink + puppy → happy</b>.</p>
+
+  <div class="card">
+    <canvas id="net" width="760" height="400"></canvas>
+    <div class="buttons">
+      <button onclick="burst(['pink'])">💗 Stimulate pink</button>
+      <button onclick="burst(['puppy'])">🐶 Stimulate puppy</button>
+      <button onclick="burst(['pink','puppy'])">💗🐶 Pink + puppy</button>
+      <button class="secondary" onclick="trainIt()">🎓 Train: pink + puppy → happy</button>
+      <button class="secondary" onclick="sleepIt()">😴 Sleep</button>
+      <button class="ghost" onclick="resetIt()">Reset</button>
+    </div>
+    <div id="stats">Happy has fired <span id="happyCount">0</span> times &nbsp;•&nbsp; Total spikes: <span id="totalSpikes">0</span> &nbsp;•&nbsp; Energy: <span id="energy">0</span> spikes/sec (sparse = cheap)</div>
+  </div>
+
+  <div class="card">
+    <h2>What happened</h2>
+    <div id="log">The brain is awake and quiet. Try "Pink + puppy" — then Train, then try it again.</div>
+  </div>
+
+  <div class="card">
+    <h2>What is a spike?</h2>
+    <p>A neuron is like a tiny bucket with a leak. Charge drips in from other neurons, and charge slowly leaks out. If enough charge arrives at once, the bucket tips over — the neuron <b>fires one short spike</b> to the neurons it is connected to, then it needs a short rest. Most of the time most neurons are quiet. That sparseness is why a real brain runs on about 20 watts, while a big AI on a GPU uses hundreds.</p>
+    <h2>What is Hebbian learning?</h2>
+    <p><b>“Neurons that fire together, wire together.”</b> If neuron A spikes just before neuron B, the connection A → B gets a little stronger. Do it again and again and the connection becomes strong enough that A alone can wake B up. That is how this brain learns pink + puppy → happy: we show it the inputs and the right answer together, 12 times, and the links in between grow.</p>
+    <h2>What does sleep do?</h2>
+    <p>Sleep tidies the brain. Links that were used a lot get a little stronger. Links that were never used fade, and very weak unused ones are pruned away. But a link you explicitly taught — like pink + puppy → happy — is protected: sleep never deletes something you taught on purpose. Same rule as Runefold's <code>/consolidate</code>.</p>
+    <div class="warn"><b>Honest note:</b> this is a toy — 12 neurons. It is not a real brain, not AGI, and it does not train the big language model. It is a small, visible way to learn the ideas a real brain-like AI would need. Scarlet's long-term direction is for Runefold's brain to one day help people talk again and walk again — assistive neurotech. That is a very long, clinical path, needing real brain-computer-interface research and clinicians. This v0.1 is step one: a brain you can watch learn one tiny thing.</div>
+  </div>
+</main>
+
+<script>
+// A small copy of core/brain.js, for the browser demo only.
+// Same constants, same rules: leak 0.85, threshold 1.0, refractory 2,
+// learning rate 0.03, one-tick synaptic delay, weights clamped 0-1.
+const NAMES = ["pink","puppy","music","treat","hidden-a","hidden-b","hidden-c","hidden-d","happy","calm","excited","sleepy"];
+const POS = [[90,60],[90,160],[90,260],[90,360],[380,60],[380,160],[380,260],[380,360],[670,60],[670,160],[670,260],[670,360]];
+const LEAK = 0.85, THRESHOLD = 1.0, LR = 0.03;
+let neurons, conns, tick = 0, totalSpikes = 0, flash = {};
+let plasticity = true;
+
+function makeBrain() {
+  neurons = NAMES.map((name, id) => ({ id, name, layer: id < 4 ? "input" : id < 8 ? "hidden" : "output", v: 0, refractory: 0, lastSpike: -1000, spikes: 0 }));
+  conns = [];
+  const w = (f, t) => (t >= 4 && t < 8 ? 0.35 : 0.25) + ((f * 7 + t * 3) % 5) * 0.05;
+  for (const f of [0,1,2,3]) for (const t of [4,5,6,7]) conns.push({ from: f, to: t, weight: w(f,t), protected: false, use: 0 });
+  for (const f of [4,5,6,7]) for (const t of [8,9,10,11]) conns.push({ from: f, to: t, weight: w(f,t), protected: false, use: 0 });
+  tick = 0; totalSpikes = 0; flash = {};
+  pending = new Array(12).fill(0);
+}
+function idOf(n) { return NAMES.indexOf(n); }
+function stimulate(names, strength = 1.2) {
+  for (const n of names) pending[idOf(n)] += strength;
+}
+let pending = new Array(12).fill(0);
+function doTick() {
+  tick++;
+  const spikes = [];
+  const next = new Array(12).fill(0);
+  for (const n of neurons) {
+    if (n.refractory > 0) { n.refractory--; n.v = 0; pending[n.id] = 0; continue; }
+    n.v = n.v * LEAK + pending[n.id];
+    pending[n.id] = 0;
+    if (n.v >= THRESHOLD) {
+      n.v = 0; n.refractory = 2; n.lastSpike = tick; n.spikes++; totalSpikes++;
+      spikes.push(n.name); flash[n.id] = tick;
+      for (const c of conns.filter(c => c.from === n.id)) { c.use++; next[c.to] += c.weight; }
+      if (plasticity) {
+        for (const c of conns.filter(c => c.to === n.id)) {
+          const dt = tick - neurons[c.from].lastSpike;
+          if (dt >= 1 && dt <= 5) c.weight = Math.min(1, c.weight + LR * (1 - dt / 6));
+        }
+      }
+    }
+  }
+  pending = next;
+  return spikes;
+}
+function log(msg) {
+  const el = document.getElementById("log");
+  el.textContent += "\n" + msg;
+  el.scrollTop = el.scrollHeight;
+}
+function draw() {
+  const c = document.getElementById("net"), ctx = c.getContext("2d");
+  ctx.clearRect(0, 0, c.width, c.height);
+  ctx.font = "13px system-ui";
+  for (const conn of conns) {
+    const a = POS[conn.from], b = POS[conn.to];
+    ctx.strokeStyle = conn.weight > 0.6 ? "#F2A93B" : "#FF6B9D";
+    ctx.globalAlpha = 0.25 + conn.weight * 0.75;
+    ctx.lineWidth = 1 + conn.weight * 5;
+    ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  for (const n of neurons) {
+    const [x, y] = POS[n.id];
+    const lit = tick - (flash[n.id] || -99) <= 1;
+    ctx.beginPath(); ctx.arc(x, y, lit ? 26 : 20, 0, Math.PI * 2);
+    ctx.fillStyle = lit ? "#FF6B9D" : "#FFE9F0";
+    ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = "#D94F7A"; ctx.stroke();
+    ctx.fillStyle = lit ? "#fff" : "#2B2330";
+    ctx.textAlign = "center"; ctx.fillText(n.name, x, y + 34);
+    if (n.spikes) { ctx.fillStyle = "#6B6470"; ctx.font = "11px system-ui"; ctx.fillText("×" + n.spikes, x, y - 28); ctx.font = "13px system-ui"; }
+  }
+  document.getElementById("happyCount").textContent = neurons[8].spikes;
+  document.getElementById("totalSpikes").textContent = totalSpikes;
+  document.getElementById("energy").textContent = tick ? Math.round((totalSpikes / tick) * 100) : 0;
+}
+function animateBurst(steps, done) {
+  let i = 0;
+  (function step() {
+    const s = doTick();
+    draw();
+    if (s.length) log("tick " + tick + ": ⚡ " + s.join(", "));
+    if (++i < steps) setTimeout(step, 120); else if (done) done();
+  })();
+}
+function burst(names) {
+  log("— stimulate: " + names.join(" + "));
+  stimulate(names);
+  animateBurst(8, () => log("happy has fired " + neurons[8].spikes + " times so far."));
+}
+function measure() {
+  plasticity = false;
+  const before = neurons[8].spikes;
+  for (let i = 0; i < 20; i++) { stimulate(["pink","puppy"]); for (let t = 0; t < 6; t++) doTick(); for (let t = 0; t < 4; t++) doTick(); }
+  plasticity = true;
+  return neurons[8].spikes - before;
+}
+function trainIt() {
+  const before = measure();
+  log("before training: happy fired " + before + " / 20 trials");
+  for (let r = 0; r < 12; r++) {
+    stimulate(["pink","puppy"]); doTick(); doTick(); doTick();
+    stimulate(["happy"]); doTick(); doTick(); doTick(); doTick();
+    for (const c of conns) if (c.use > 0 && (c.to === 8 || (c.to >= 4 && c.to < 8))) c.protected = true;
+  }
+  const after = measure();
+  const w = conns.find(c => c.from === 4 && c.to === 8).weight.toFixed(2);
+  log("🎓 trained 12 rounds. hidden-a → happy weight is now " + w);
+  log("after training: happy fired " + after + " / 20 trials — it learned pink + puppy → happy!");
+  draw();
+}
+function sleepIt() {
+  let strong = 0, decayed = 0, pruned = 0;
+  for (const c of conns) {
+    if (c.protected) { c.weight = Math.min(1, c.weight + (c.use > 0 ? 0.02 : -0.01)); if (c.weight < 0.1) c.weight = 0.1; }
+    else if (c.use >= 3) { c.weight = Math.min(1, c.weight + 0.05); strong++; }
+    else if (c.use === 0) { c.weight = Math.max(0, c.weight - 0.08); decayed++; if (c.weight < 0.08) { c.weight = 0; pruned++; } }
+    c.use = 0;
+  }
+  log("😴 sleep: strengthened " + strong + ", decayed " + decayed + ", pruned " + pruned + ". Taught links were protected.");
+  draw();
+}
+function resetIt() { makeBrain(); document.getElementById("log").textContent = "Fresh brain. Try \"Pink + puppy\" — then Train, then try it again."; draw(); }
+makeBrain();
+draw();
+</script>
+</body>
+</html>

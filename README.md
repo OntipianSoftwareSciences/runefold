@@ -113,6 +113,53 @@ No autonomous shell, no file edits, no API keys in chat or in files.
 Secrets and health details are filtered from memory — review `/memory`
 and use `/forget` whenever needed.
 
+## Runefold Brain v0.1 — a tiny brain-like spiking core
+
+Runefold's chatbot runs on an LLM (Ollama / Qwen). The Brain is a
+separate, tiny experiment next to it: 12 fake neurons that talk to each
+other with **spikes**, the way real brain cells do.
+
+- A neuron's charge leaks away a little every tick. Enough charge at
+  once, and it fires one short spike, then rests for 2 ticks.
+- **Hebbian / STDP learning:** if neuron A spikes just before neuron B,
+  the A → B connection gets stronger ("fire together, wire together").
+  If B fires first, the link weakens. Small steps, weights clamped 0–1.
+- **Sleep / consolidation:** `sleep()` strengthens links that were used
+  a lot, fades links that were never used, and prunes very weak unused
+  ones. Links you explicitly taught are protected — sleep never deletes
+  something you taught on purpose, same rule as `/consolidate`.
+- **Energy:** the brain reports spikes per second. Sparse firing is the
+  point: a real brain runs on about 20 watts.
+
+The demo association is **pink + puppy → happy**. Before training,
+happy fires in about half the trials (10/20). After 12 training rounds
+it fires in all of them (20/20), and pink alone still does not trigger
+it — the brain learned the pair, not just pink. The weight
+hidden-a → happy grows from 0.35 to about 0.63.
+
+### What it is NOT
+Not a real brain. Not AGI. It does not train LLM weights, and running
+it does not make Runefold generally intelligent. It is a 12-neuron toy
+so you can see and touch the ideas. Scarlet's long-term direction is
+for Runefold's brain to one day help people talk again and walk again
+(assistive neurotech) — that is a very long, clinical path needing real
+brain-computer-interface research and clinicians, not a promise. v0.1
+is step one: a brain you can watch learn one tiny thing.
+
+### How to run it
+```
+node --test test.js        # 13 tests: 8 original + 5 brain tests
+node index.js              # then type /brain for the in-terminal demo
+```
+Or open `web/brain-demo.html` in a browser (double-click it — no
+server, no trackers, no internet needed). Buttons: Stimulate pink /
+puppy / pink+puppy, Train, Sleep, Reset. Neurons light up when they
+spike; connections get thicker and gold as they grow stronger.
+
+Code: `core/brain.js` — pure Node, no dependencies. API:
+`createBrain()`, `stimulate()`, `tick()`, `train()`, `measure()`,
+`sleep()`, `getState()`, plus `demoBrain()` for the terminal demo.
+
 ## The agent's own cursor (web/cursor.html)
 Open it in a browser. The blob is NOT your mouse — it's an agent with
 a tiny decision loop: energy + curiosity + boredom → pick a goal →
