@@ -9,6 +9,7 @@ import { demoBrain } from "./core/brain.js";
 import { listAllTemplates, runTemplateDemo, demoSummary, buildBrainFromTemplate, saveBrain, loadBrain, brainSummary, transferSavedBrain, listSavedBrains, restBrain } from "./core/fly.js";
 import { KINDNESS_RULES, kindnessCharterText, checkKindness } from "./core/kindness.js";
 import { demoWorm, demoWormTransfer, wormDemoSummary } from "./core/worm.js";
+import { demoFriends } from "./core/friends.js";
 
 const CONFIG_PATH = new URL("./config.json", import.meta.url);
 let config;
@@ -68,6 +69,9 @@ ${magenta}WORM BRAIN v0.3 — OpenWorm, simplified C. elegans${reset}
                              /fly and /template list show it with the 5 flies
   /transfer <saved-brain> worm <new-name>
                              Reuse a worm's smell skill in a new worm brain
+${magenta}FRIENDSHIP SIM — fly meets worm (toy world)${reset}
+  /friends                   Fly + worm share honey and become friends in ASCII
+  /friends train             Train both brains first, then compare meetings
 ${magenta}KINDNESS — Runefold is kind to every brain it uses${reset}
   /kind                      Print the kindness charter + core values,
                              and list the brains Runefold has made +
@@ -84,6 +88,25 @@ function status() {
   console.log(`Provider: ${config.provider}  Model: ${config.model}  Auto-learn: ${config.autoLearn ? "ON" : "OFF"}\nMemory: ${dataLocation()}`);
   console.log(`Memories: ${listMemories().length} | Experiences: ${readExperiences(10000).length} | Skills: ${listSkills().length} | Goals: ${listGoals().filter(g => g.status === "active").length} active`);
 }
+// /friends prints three snapshots (start, first meeting, end) and the
+// measured numbers. No Ollama call, no file writes, no other command changed.
+function printFriendsNumbers(label, r) {
+  console.log(`\n${magenta}${label}${reset}`);
+  console.log(`  distance before: ${r.distanceBefore} | distance after: ${r.distanceAfter}`);
+  console.log(`  meetings: ${r.meetings}${r.meetingsToFriendship ? ` (friends after ${r.meetingsToFriendship} friendly meetings)` : ""}`);
+  console.log(`  honey shared: ${r.honeyShared}`);
+  console.log(`  friends: ${r.friends ? "yes" : "no"}`);
+  console.log(`  learned weight kc-a-01 -> approach: fly ${r.flyWeight}, worm ${r.wormWeight}`);
+  console.log(`  worm crawl-backward after friendship: ${r.backwardMovesAfterFriendship}`);
+  console.log(`  kindness gate: ${r.kindnessPassed ? "passed — no pain, no fear, no harm" : "FAILED"}`);
+}
+function printFriendsGrids(grids) {
+  for (const name of ["start", "middle", "end"]) {
+    console.log(`\n${dim}${name} grid:${reset}`);
+    console.log(grids[name]);
+  }
+}
+
 async function command(line) {
   const [cmd, ...rest] = line.trim().split(" ");
   const arg = rest.join(" ").trim();
@@ -210,6 +233,26 @@ async function command(line) {
       console.log(`\n${magenta}Worm brain v0.3: ${result.template} — ${result.job}${reset}`);
       for (const line of wormDemoSummary(result)) console.log(`  ${line}`);
       console.log(`${dim}C. elegans, toy scale — not a living worm, not AGI. See README "Brain v0.3".${reset}\n`);
+      return true;
+    }
+    case "/friends": {
+      // Small, safe addition: only this command runs the new world.
+      if (arg && arg !== "train") { console.log("Usage: /friends  or  /friends train"); return true; }
+      if (arg === "train") {
+        const r = demoFriends({ compare: true });
+        console.log(`\n${magenta}Fly Meets Worm — trained pair (F = fly, w = worm, H = honeycomb, * = honey, ♥ = friends)${reset}`);
+        printFriendsGrids(r.trained.grids);
+        printFriendsNumbers("untrained pair — same world, no head start", r.untrained);
+        printFriendsNumbers("trained pair — both brains trained first", r.trained);
+        console.log(`  meetings saved by training: ${r.meetingsSaved} (untrained ${r.untrained.meetingsToFriendship} -> trained ${r.trained.meetingsToFriendship})`);
+        console.log(`${dim}Both pairs use the same STDP lesson in core/friends.js; only the starting weights differ.${reset}\n`);
+        return true;
+      }
+      const r = demoFriends();
+      console.log(`\n${magenta}Fly Meets Worm — friendship simulation (F = fly, w = worm, H = honeycomb, * = honey, ♥ = friends)${reset}`);
+      printFriendsGrids(r.grids);
+      printFriendsNumbers("final numbers", r);
+      console.log(`${dim}Toy ASCII world with two simulated brains learning a positive association — not real animals, not feelings.${reset}\n`);
       return true;
     }
     case "/newbrain": {

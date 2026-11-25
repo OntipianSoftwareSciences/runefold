@@ -633,3 +633,222 @@ Files: `core/worm.js` (new — template, navigation, demos, worm transfer),
 `/transfer`), `index.js` (`/worm`, worm in `/fly`, `/template`, `/newbrain`,
 `/brain`, `/transfer`, help lines), `test.js` (33 tests: the original 26
 untouched + 7 new worm tests).
+
+## Fly Meets Worm — friends (Brain v0.4)
+
+**What it is.** One 20 × 12 ASCII world, printed in the terminal: sky at
+the top, grass and flowers at the bottom, a honeycomb on the right, and
+honey drips falling. `F` is a fly, `w` is a worm, `*` is honey, `H` is the
+honeycomb, and `♥` appears when they become friends. They start far apart
+(distance **21** by grid steps). Every tick each one senses where the other
+is (left / right / above / below) and how far away. At first they are shy:
+they approach a little, back off, then approach again — they never rush
+straight at each other. When they meet, the fly shares a honey drip
+("yum!") and both brains learn one small friendly lesson.
+
+**Reuse, not reinvention.** The fly is
+`buildBrainFromTemplate("mushroom-body")`; the worm is
+`buildBrainFromTemplate("worm")` (its template is registered by
+`core/worm.js`). Both use the ONE neuron model in `core/brain.js` and the
+ONE template system in `core/fly.js`. Nothing is added to either brain.
+Decisions are read by stimulating existing inputs (`smell-a`, the friendly
+shape) and counting output spikes with plasticity switched off — the same
+pattern as `navigateWorm()` in `core/worm.js`, so looking at a friend does
+not secretly train a brain.
+
+**How they learn the other is safe.** Every meeting runs the existing
+`trainAssociation()` from `core/fly.js` for one round on each brain:
+`smell-a + reward -> approach`. That is ordinary STDP / teacher-forcing,
+the same learning used by the fly and worm demos — no second learning
+system. In each brain the measured `kc-a-01 -> approach` weight grows from
+**0.08** to **0.205**. "Friends" is a plain, measured rule in this toy: both
+learned weights have reached **0.20** and at least **two** honey moments
+have happened; after that they stay close (distance 1) and the heart is
+drawn. The worm's learned `approach` drives its existing fixed
+`approach -> avb` forward-crawl link, so after learning it does **not**
+crawl backward away from the fly (measured: **0** backward moves after
+friendship). No pain, fear, punishment, escape or harm signal exists in
+this world, and `checkKindness()` from `core/kindness.js` gates the job
+before any brain is built.
+
+**How to run it.** No Ollama needed.
+
+```
+/friends                 # ASCII world + before/after numbers
+/friends train           # train both brains first; compare meetings needed
+node --test test.js      # 40 tests: 33 original + 7 friends tests
+```
+
+**Numbers observed (real runs, deterministic):**
+
+| Pair | Distance before → after | Meetings to friendship | Honey shared | Friends |
+|---|---|---|---|---|
+| Untrained | 21 → 1 | 5 | 5 | yes |
+| Trained first | 21 → 1 | 2 | 2 | yes |
+
+Training saved **3** meetings. Both pairs became friends in the end; the
+trained pair already had the association, so it needed fewer honey
+meetings to cross the same learned-weight threshold.
+
+**Full terminal session (real output observed).** Commands were piped into
+`node index.js`; ANSI colour codes were stripped. With piped input the
+prompt is printed once at the start, so the second command's output follows
+directly after the first.
+
+```
+
+╭────────────────────────────────────────────────────╮
+│  R U N E F O L D   A I   //   ADAPTIVE CORE 0.6.1  │
+│  MEMORY  ◈  RETRIEVAL  ◈  PLAN  ◈  CRITIC  ◈  TOOLS  │
+╰────────────────────────────────────────────────────╯
+Local-first terminal assistant • type /help for commands • /think uses plan + critic
+Memory store: /home/scarletborrowedthis/.runefold
+
+🫧 runefold ❯ 
+Fly Meets Worm — friendship simulation (F = fly, w = worm, H = honeycomb, * = honey, ♥ = friends)
+
+start grid:
++--------------------+
+|                    |
+|                    |
+|   F             * H|
+|                   H|
+|                  *H|
+|                   H|
+|                    |
+|                    |
+|                    |
+|,,,,,,,,,,,,,,,,,,,,|
+|,,,y,,,,,,,y,,,,w,,,|
+|,,,,,,y,,,,,,,y,,,,,|
++--------------------+
+
+middle grid:
++--------------------+
+|                    |
+|                    |
+|                   H|
+|                  *H|
+|         *         H|
+|         F         H|
+|                    |
+|          w         |
+|                 *  |
+|,,,,,,,,,,,,,,,,,,,,|
+|,,,y,,,,,,,y,,,,,,,,|
+|,,,,,,y,,,,,,,y,,,,,|
++--------------------+
+
+end grid:
++--------------------+
+|                    |
+|                    |
+|                   H|
+|                   H|
+|                 * H|
+|          ♥        H|
+|         Fw       * |
+|                    |
+|                    |
+|,,,,,,,,,,,,,,,,,,,,|
+|,,,y,,,,,,,y,,,,,,,,|
+|,,,,,,y,,,,,,,y,,,,,|
++--------------------+
+
+final numbers
+  distance before: 21 | distance after: 1
+  meetings: 5 (friends after 5 friendly meetings)
+  honey shared: 5
+  friends: yes
+  learned weight kc-a-01 -> approach: fly 0.205, worm 0.205
+  worm crawl-backward after friendship: 0
+  kindness gate: passed — no pain, no fear, no harm
+Toy ASCII world with two simulated brains learning a positive association — not real animals, not feelings.
+
+
+Fly Meets Worm — trained pair (F = fly, w = worm, H = honeycomb, * = honey, ♥ = friends)
+
+start grid:
++--------------------+
+|                    |
+|                    |
+|   F             * H|
+|                   H|
+|                  *H|
+|                   H|
+|                    |
+|                    |
+|                    |
+|,,,,,,,,,,,,,,,,,,,,|
+|,,,y,,,,,,,y,,,,w,,,|
+|,,,,,,y,,,,,,,y,,,,,|
++--------------------+
+
+middle grid:
++--------------------+
+|                    |
+|                    |
+|                   H|
+|                  *H|
+|         *         H|
+|         F         H|
+|                    |
+|          w         |
+|                 *  |
+|,,,,,,,,,,,,,,,,,,,,|
+|,,,y,,,,,,,y,,,,,,,,|
+|,,,,,,y,,,,,,,y,,,,,|
++--------------------+
+
+end grid:
++--------------------+
+|                    |
+|                    |
+|                 * H|
+|                   H|
+|                  *H|
+|          ♥        H|
+|         Fw         |
+|                    |
+|                    |
+|,,,,,,,,,,,,,,,,,,,,|
+|,,,y,,,,,,,y,,,,,,,,|
+|,,,,,,y,,,,,,,y,,,,,|
++--------------------+
+
+untrained pair — same world, no head start
+  distance before: 21 | distance after: 1
+  meetings: 5 (friends after 5 friendly meetings)
+  honey shared: 5
+  friends: yes
+  learned weight kc-a-01 -> approach: fly 0.205, worm 0.205
+  worm crawl-backward after friendship: 0
+  kindness gate: passed — no pain, no fear, no harm
+
+trained pair — both brains trained first
+  distance before: 21 | distance after: 1
+  meetings: 2 (friends after 2 friendly meetings)
+  honey shared: 2
+  friends: yes
+  learned weight kc-a-01 -> approach: fly 0.205, worm 0.205
+  worm crawl-backward after friendship: 0
+  kindness gate: passed — no pain, no fear, no harm
+  meetings saved by training: 3 (untrained 5 -> trained 2)
+Both pairs use the same STDP lesson in core/friends.js; only the starting weights differ.
+
+
+Runefold session closed. Your saved learning remains on this computer.
+```
+
+**Honest limits.** This is a toy-scale, simplified ASCII world. It is
+**not** real animals, **not** OpenWorm or a real fly connectome, **not**
+AGI, and **not** a medical device or clinical tool. It does not train the
+Ollama/Qwen weights. Two simulated brains are learning a positive
+association by STDP — **not having real feelings**, not suffering, and not
+forming a real friendship. The kindness rule is a design choice applied
+anyway: the world refuses harmful jobs through the existing gate and uses
+only reward and practice.
+
+Files: `core/friends.js` (new — world, rendering, stepping, demos),
+`index.js` (`/friends`, `/friends train`, help lines only),
+`test.js` (7 new friends tests; the original 33 untouched), this README.

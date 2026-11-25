@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { tokenize, search } from "./core/retrieval.js";
 import { teach, forgetMemory, listMemories, consolidate, addGoal } from "./core/learning.js";
 import { writeFile, editFile, runAllowed } from "./core/tools.js";
@@ -11,6 +13,7 @@ import { listTemplates, listAllTemplates, getTemplate, buildBrainFromTemplate, d
 import { getWormTemplate, buildWormBrain, demoWorm, demoWormTransfer, demoWormNavigation, navigateWorm, assertWormKind } from "./core/worm.js";
 import { KINDNESS_RULES, CORE_VALUES, checkKindness, isKindJob, kindnessCharterText } from "./core/kindness.js";
 import { dataLocation } from "./core/store.js";
+import { FRIENDS_JOB, createFriendsWorld, stepFriendsWorld, runFriendsWorld, demoFriends, renderFriendsWorld } from "./core/friends.js";
 
 function tmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "runefold-test-"));
@@ -454,4 +457,101 @@ test("worm: /newbrain worm works through the existing template system; a harmful
       fs.writeFileSync(brainsPath, JSON.stringify(data, null, 2));
     } catch { /* store may not exist if the test failed early */ }
   }
+});
+
+// --- Runefold Brain v0.4: Fly Meets Worm, a friendship simulation ---
+
+test("friends: an untrained fly and worm become friends after a few meetings, and nothing bad happens", () => {
+  const world = runFriendsWorld({ rounds: 90 });
+  assert.equal(world.friends, true, "they should become friends");
+  assert.equal(world.meetingsToFriendship !== null, true, "friendship should be dated by a meeting count");
+  assert.ok(world.meetingsToFriendship >= 2 && world.meetingsToFriendship <= 8,
+    `friendship should take a few meetings, got ${world.meetingsToFriendship}`);
+  assert.ok(world.distanceAfter <= 2, `they should stay close, distance ${world.distanceAfter}`);
+  // The world has no pain, fear, punishment or harm signal at all.
+  assert.equal(world.painSignals, 0);
+  assert.equal(world.fearSignals, 0);
+  assert.equal(world.harmfulEvents, 0);
+  assert.equal(world.kindnessPassed, true);
+  assert.equal(checkKindness(FRIENDS_JOB).ok, true, "the world's job must pass the existing gate");
+  // The two brains came from the existing templates.
+  assert.equal(world.flyBrain.template, "mushroom-body");
+  assert.equal(world.wormBrain.template, "worm");
+});
+
+test("friends: a trained pair becomes friends in fewer meetings than an untrained pair", () => {
+  const untrained = runFriendsWorld({ rounds: 90, preTrain: false });
+  const trained = runFriendsWorld({ rounds: 90, preTrain: true });
+  assert.equal(untrained.friends, true);
+  assert.equal(trained.friends, true);
+  assert.ok(trained.meetingsToFriendship < untrained.meetingsToFriendship,
+    `trained ${trained.meetingsToFriendship} should be fewer than untrained ${untrained.meetingsToFriendship}`);
+  const d = demoFriends({ compare: true });
+  assert.equal(d.meetingsSaved, untrained.meetingsToFriendship - trained.meetingsToFriendship);
+});
+
+test("friends: the fly shares honey when close, and honey shared goes up", () => {
+  const world = createFriendsWorld();
+  const before = world.honeyShared;
+  assert.equal(before, 0);
+  for (let i = 0; i < 90 && world.honeyShared === before; i++) stepFriendsWorld(world);
+  assert.ok(world.honeyShared > before, "honey shared must increase after a meeting");
+  assert.match(world.lastEvent, /yum/, "the honey moment should say yum!");
+  assert.ok(world.trace.some((s) => s.wormAction === "crawl-forward" && s.distance <= 3),
+    "the worm should have crawled close enough to meet");
+});
+
+test("friends: the worm does NOT crawl backward away from the fly after learning it is a friend", () => {
+  const world = runFriendsWorld({ rounds: 90 });
+  assert.equal(world.friends, true);
+  assert.equal(world.backwardMovesAfterFriendship, 0, "no backward steps once they are friends");
+  assert.ok(world.backwardMoves >= 1, "the shy back-off before friendship should still exist");
+  assert.ok(world.wormBrain.weight("kc-a-01", "approach") > 0.08,
+    "the worm's approach link must have learned from the meetings");
+  const backward = world.wormBrain.measure(["smell-a"], "crawl-backward", 10);
+  assert.equal(backward.rate, 0, "the friendly smell must not drive crawl-backward");
+});
+
+test("friends: /friends runs without crashing and reports distance, meetings, honey and friends: yes", () => {
+  const out = execFileSync(process.execPath, ["index.js"], {
+    cwd: path.dirname(fileURLToPath(import.meta.url)),
+    input: "/friends\n/exit\n",
+    encoding: "utf8",
+  });
+  assert.match(out, /distance before: \d+ \| distance after: \d+/);
+  assert.match(out, /meetings: \d+/);
+  assert.match(out, /honey shared: \d+/);
+  assert.match(out, /friends: yes/);
+  assert.match(out, /start grid:/);
+  assert.match(out, /middle grid:/);
+  assert.match(out, /end grid:/);
+  assert.match(out, /♥/, "the end grid should show the little heart");
+});
+
+test("friends: /friends train shows the trained pair needs fewer meetings", () => {
+  const out = execFileSync(process.execPath, ["index.js"], {
+    cwd: path.dirname(fileURLToPath(import.meta.url)),
+    input: "/friends train\n/exit\n",
+    encoding: "utf8",
+  });
+  assert.match(out, /untrained pair — same world, no head start/);
+  assert.match(out, /trained pair — both brains trained first/);
+  assert.match(out, /meetings saved by training: [1-9]\d*/);
+  assert.match(out, /friends: yes/);
+});
+
+test("friends: the world is deterministic and renders sky, grass, honeycomb and a heart", () => {
+  const a = runFriendsWorld({ rounds: 90 });
+  const b = runFriendsWorld({ rounds: 90 });
+  assert.equal(a.ticks, b.ticks);
+  assert.equal(a.meetings, b.meetings);
+  assert.equal(a.honeyShared, b.honeyShared);
+  assert.equal(a.distanceBefore, b.distanceBefore);
+  assert.equal(a.distanceAfter, b.distanceAfter);
+  assert.equal(renderFriendsWorld(a), renderFriendsWorld(b));
+  const grid = a.grids.end;
+  assert.match(grid, /H/, "honeycomb on the side");
+  assert.match(grid, /,/, "grass at the bottom");
+  assert.match(grid, /♥/, "a little heart when they are friends");
+  assert.match(grid, /Fw/, "fly and worm stay close together");
 });
