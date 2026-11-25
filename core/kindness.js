@@ -134,12 +134,12 @@ const HARMFUL_PATTERNS = [
 const KIND_ALTERNATIVE =
   "A kind alternative: learn something new, navigate somewhere, " +
   "help someone walk or talk again, or sort smells — jobs that help, " +
-  "not jobs that hurt. Try /fly to see the kind jobs Runefold can do.";
+  "not jobs that hurt. Ask 'show me the fly' to see the kind jobs Runefold can do.";
 
 const RESPECTFUL_ALTERNATIVE =
   "A respectful alternative: use the name and pronouns the person asks " +
   "for, and help anyone regardless of who they are or where they come " +
-  "from. Try /fly to see the kind jobs Runefold can do.";
+  "from. Ask 'show me the fly' to see the kind jobs Runefold can do.";
 
 // checkKindness(job) — the gate every brain must pass.
 // job may be a string ("learn smell -> approach") or an object with

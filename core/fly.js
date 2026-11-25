@@ -331,7 +331,7 @@ export function listAllTemplates() {
 
 export function getTemplate(name) {
   const t = [...TEMPLATES, ...EXTRA_TEMPLATES].find((x) => x.name === name);
-  if (!t) throw new Error(`Unknown fly template: ${name}. Try /fly to list them.`);
+  if (!t) throw new Error(`Unknown fly template: ${name}. Ask 'show me the fly' to list them.`);
   return t;
 }
 
@@ -519,7 +519,7 @@ export function runTemplateDemo(name, brain) {
     case "giant-fiber": return demoGiantFiber(brain);
     case "ventral-nerve-cord": return demoVentralNerveCord(brain);
     case "transfer": return demoTransfer();
-    default: throw new Error(`Unknown fly template: ${name}. Try /fly to list them.`);
+    default: throw new Error(`Unknown fly template: ${name}. Ask 'show me the fly' to list them.`);
   }
 }
 
@@ -644,7 +644,7 @@ export function loadBrain(name) {
   const record = readBrains().find((b) => b.name === name);
   if (!record) {
     const known = listSavedBrains().map((b) => b.name).join(", ");
-    throw new Error(`No saved brain called ${name}.${known ? ` Saved brains: ${known}.` : " No brains saved yet — try /newbrain mushroom-body my-first-brain."}`);
+    throw new Error(`No saved brain called ${name}.${known ? ` Saved brains: ${known}.` : " No brains saved yet — try asking: show me the mushroom body."}`);
   }
   const layers = {};
   for (const n of record.neurons) layers[n.name] = n.layer;
