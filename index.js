@@ -6,6 +6,8 @@ import { teach, listMemories, forgetMemory, addExperienceRecord, recordSkill, li
 import { dataLocation, paths, readExperiences, readJournal } from "./core/store.js";
 import { startLiquidCursor, stopLiquidCursor, liquidPrompt } from "./core/cursor.js";
 import { demoBrain } from "./core/brain.js";
+import { listTemplates, runTemplateDemo, demoSummary, buildBrainFromTemplate, saveBrain, loadBrain, brainSummary, transferSavedBrain, listSavedBrains, restBrain } from "./core/fly.js";
+import { KINDNESS_RULES, kindnessCharterText, checkKindness } from "./core/kindness.js";
 
 const CONFIG_PATH = new URL("./config.json", import.meta.url);
 let config;
@@ -47,6 +49,24 @@ ${magenta}CODEFORGE v0.1 — writes ask first, backup to .bak${reset}
   /edit <file> | <old> | <new>   Replace one exact match, preview, confirm
 ${magenta}BRAIN v0.1 — tiny spiking neurons, not the LLM${reset}
   /brain                     Run the pink + puppy -> happy demo, print before/after
+  /brain <name>              Run a saved brain's demo (see /newbrain)
+${magenta}FLY BRAIN v0.2 — reverse-engineered fruit fly templates${reset}
+  /fly                       List the 5 fly templates and their jobs
+  /fly <name>                Run that template's demo, print before/after
+  /fly transfer              Transfer demo: a new smell learned faster
+                             from an old skill (fresh vs transferred)
+  /template list             Same list as /fly
+  /newbrain <template> <name>   Make a new brain from a template and save it
+  /transfer <saved-brain> mushroom-body <new-name>
+                             Transfer a saved trained brain to a new brain
+                             for a new smell (smell-c), save it, print rounds
+${magenta}KINDNESS — Runefold is kind to every brain it uses${reset}
+  /kind                      Print the kindness charter + core values,
+                             and list the brains Runefold has made +
+                             whether they rested
+  /kind <job...>             Check a job against the charter — Runefold
+                             refuses transphobic, racist, or harmful jobs
+  /kind rest <name>          Thank a saved brain and rest it (sleep)
 ${magenta}OTHER${reset}
   /autolearn on|off  /status  /help  /exit
 Chat normally for a plain answer. Auto-learning only saves durable, non-sensitive statements.
@@ -113,6 +133,19 @@ async function command(line) {
       return true;
     }
     case "/brain": {
+      // /brain <name> runs a SAVED brain's demo; plain /brain is the v0.1 demo.
+      if (arg) {
+        try {
+          const saved = loadBrain(arg);
+          const summary = brainSummary(saved, arg);
+          console.log(`\n${magenta}Saved brain "${arg}"${reset} — template ${summary.template}, ${summary.neurons} neurons, ${summary.connections} connections`);
+          console.log(`Inputs: ${summary.inputs.join(", ")} | Outputs: ${summary.outputs.join(", ")}`);
+          const result = runTemplateDemo(saved.template, saved);
+          for (const line of demoSummary(result)) console.log(`  ${line}`);
+          console.log(`${dim}The demo runs on the loaded brain in memory; your saved brain on disk is not changed by it.${reset}\n`);
+        } catch (e) { console.log(`Cannot run that brain: ${e.message}`); }
+        return true;
+      }
       const d = demoBrain();
       console.log(`\n${magenta}Runefold Brain v0.1 — pink + puppy -> happy${reset}`);
       console.log(`Before training: happy fired ${d.before.spikes}/${d.before.steps} trials (rate ${d.before.rate})`);
@@ -120,6 +153,97 @@ async function command(line) {
       console.log(`hidden-a -> happy weight: ${d.weightBefore} -> ${d.weightAfter}`);
       console.log(`Energy during the demo: ${d.spikesPerSecond} spikes/sec, ${d.totalSpikes} spikes in ${d.ticks} ticks.`);
       console.log(`${dim}Toy brain, 12 neurons — it does not train the LLM. See web/brain-demo.html to watch it learn.${reset}\n`);
+      return true;
+    }
+    case "/fly": {
+      // /fly lists templates; /fly <name> runs that template's demo.
+      if (!arg) {
+        console.log(`\n${magenta}Fly brain templates — reverse-engineered from the fruit fly (FlyWire 2024)${reset}`);
+        for (const t of listTemplates()) {
+          console.log(`  ${t.name} (${t.neurons} neurons) — ${t.job}${t.learnable ? " [learnable]" : ""}`);
+        }
+        console.log(`${dim}Try: /fly mushroom-body   or   /fly transfer   or   /newbrain mushroom-body my-first-fly-brain${reset}\n`);
+        return true;
+      }
+      try {
+        const result = runTemplateDemo(arg);
+        console.log(`\n${magenta}Fly template: ${result.template} — ${result.job}${reset}`);
+        for (const line of demoSummary(result)) console.log(`  ${line}`);
+        console.log(`${dim}Toy scale, simplified from the real fly circuit — see README "Brain v0.2".${reset}\n`);
+      } catch (e) { console.log(`Cannot run that template: ${e.message}`); }
+      return true;
+    }
+    case "/template": {
+      if (arg && arg !== "list") { console.log("Usage: /template list"); return true; }
+      console.log(`\n${magenta}Fly brain templates${reset}`);
+      for (const t of listTemplates()) {
+        console.log(`  ${t.name} (${t.neurons} neurons) — ${t.job}${t.learnable ? " [learnable]" : ""}`);
+      }
+      console.log("");
+      return true;
+    }
+    case "/newbrain": {
+      const parts = arg.split(/\s+/).filter(Boolean);
+      if (parts.length < 2) { console.log("Usage: /newbrain <template> <name>  e.g. /newbrain mushroom-body my-first-fly-brain"); return true; }
+      const [templateName, brainName] = parts;
+      try {
+        const brain = buildBrainFromTemplate(templateName);
+        saveBrain(brainName, templateName, brain);
+        const summary = brainSummary(brain, brainName);
+        console.log(`\n${green}New brain "${brainName}" saved.${reset} Template: ${summary.template} — ${brain.templateJob}`);
+        console.log(`Neurons: ${summary.neurons} | Connections: ${summary.connections}`);
+        console.log(`Inputs: ${summary.inputs.join(", ")}`);
+        console.log(`Outputs: ${summary.outputs.join(", ")}`);
+        console.log(`${dim}Saved in your Runefold memory store (brains.json). Run it with /brain ${brainName} or /fly ${templateName}.${reset}\n`);
+      } catch (e) { console.log(`Cannot make that brain: ${e.message}`); }
+      return true;
+    }
+    case "/kind": {
+      const parts = arg.split(/\s+/).filter(Boolean);
+      if (parts[0] === "rest") {
+        if (!parts[1]) { console.log("Usage: /kind rest <name>  e.g. /kind rest my-first-fly-brain"); return true; }
+        try {
+          const r = restBrain(parts[1]);
+          console.log(`\n${green}${r.thankYou}${reset}`);
+          console.log(`Brain "${r.name}" (${r.template}) rested at ${r.restedAt}.`);
+          console.log(`Sleep: strengthened ${r.sleep.strengthened}, decayed ${r.sleep.decayed}, pruned ${r.sleep.pruned}.`);
+          console.log(`${dim}Rest is part of learning — sleep keeps what mattered and lets go of the rest.${reset}\n`);
+        } catch (e) { console.log(`Cannot rest that brain: ${e.message}`); }
+        return true;
+      }
+      // /kind <job...> — check any job against the charter, in-terminal.
+      // A transphobic, racist, or harmful job is refused kindly here;
+      // a kind, respectful job is allowed. The job is NOT done and then
+      // excused with a disclaimer — it is refused before it starts.
+      if (parts.length) {
+        const job = arg;
+        const check = checkKindness(job);
+        console.log(`\n${check.ok ? green : yellow}${check.reason}${reset}\n`);
+        return true;
+      }
+      console.log(`\n${magenta}${kindnessCharterText()}${reset}`);
+      const saved = listSavedBrains();
+      console.log(`\n${magenta}Brains Runefold has made:${reset}`);
+      if (!saved.length) console.log("  None saved yet — try /newbrain mushroom-body my-first-fly-brain");
+      for (const b of saved) {
+        console.log(`  ${b.name} (${b.template}) — rested: ${b.rested ? `yes${b.restedAt ? ` (${b.restedAt})` : ""}` : "not yet — try /kind rest " + b.name}`);
+      }
+      console.log(`${dim}${KINDNESS_RULES.length} kindness rules, in core/kindness.js. A simulated brain does not feel pain like a living animal — Runefold is kind anyway.${reset}\n`);
+      return true;
+    }
+    case "/transfer": {
+      const parts = arg.split(/\s+/).filter(Boolean);
+      if (parts.length < 3) { console.log("Usage: /transfer <saved-brain> mushroom-body <new-name>  e.g. /transfer my-smell-brain mushroom-body my-new-smell-brain"); return true; }
+      const [sourceName, newTemplate, newName] = parts;
+      try {
+        const r = transferSavedBrain(sourceName, newTemplate, newName);
+        console.log(`\n${green}Transferred "${sourceName}" -> new brain "${newName}".${reset}`);
+        console.log(`Copied approach weight (halved, from the source brain): ${r.copiedApproachWeight}`);
+        console.log(`New smell-c -> approach before retraining: rate ${r.beforeRate}`);
+        console.log(`Training rounds to reach 80%: ${r.roundsToLearn}`);
+        console.log(`New smell-c -> approach after retraining: rate ${r.afterRate}`);
+        console.log(`${dim}Saved as "${newName}". The old skill was reused; only the new smell was retrained. Compare with a fresh brain: /fly transfer.${reset}\n`);
+      } catch (e) { console.log(`Cannot transfer: ${e.message}`); }
       return true;
     }
     case "/autolearn": if (arg === "on") config.autoLearn = true; else if (arg === "off") config.autoLearn = false; else { console.log("Usage: /autolearn on|off"); return true; } fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2)); console.log(`Auto-learn ${config.autoLearn ? "ON" : "OFF"}.`); return true;

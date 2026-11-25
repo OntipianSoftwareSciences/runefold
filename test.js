@@ -7,6 +7,9 @@ import { tokenize, search } from "./core/retrieval.js";
 import { teach, forgetMemory, listMemories, consolidate, addGoal } from "./core/learning.js";
 import { writeFile, editFile, runAllowed } from "./core/tools.js";
 import { createBrain, demoBrain } from "./core/brain.js";
+import { listTemplates, getTemplate, buildBrainFromTemplate, demoMushroomBody, demoCentralComplex, demoAntennalLobe, demoGiantFiber, demoVentralNerveCord, demoTransfer, buildTransferBrain, saveBrain, loadBrain, assertKindTemplate, restBrain, listSavedBrains } from "./core/fly.js";
+import { KINDNESS_RULES, CORE_VALUES, checkKindness, isKindJob, kindnessCharterText } from "./core/kindness.js";
+import { dataLocation } from "./core/store.js";
 
 function tmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "runefold-test-"));
@@ -128,6 +131,216 @@ test("brain: demoBrain shows a clear before/after", () => {
   const d = demoBrain();
   assert.ok(d.after.rate > d.before.rate, `demo before ${d.before.rate} should be below after ${d.after.rate}`);
   assert.ok(d.weightAfter > d.weightBefore, "demo weight should grow with training");
+});
+
+// --- Runefold Brain v0.2: reverse-engineered fruit fly templates ---
+
+test("fly: template list has the 5 fly modules, total neurons under 300", () => {
+  const list = listTemplates();
+  assert.deepEqual(list.map((t) => t.name), [
+    "mushroom-body", "central-complex", "antennal-lobe", "giant-fiber", "ventral-nerve-cord",
+  ]);
+  const total = list.reduce((a, t) => a + t.neurons, 0);
+  assert.ok(total < 300, `total fly neurons should stay toy-scale, got ${total}`);
+  assert.ok(list.every((t) => t.job && t.inputs.length && t.outputs.length));
+});
+
+test("fly: mushroom body learns smell-a->approach and smell-b->avoid, wrong pairing stays quiet", () => {
+  const d = demoMushroomBody();
+  assert.equal(d.beforeApproach.rate, 0, "untrained smell-a should not trigger approach");
+  assert.equal(d.beforeAvoid.rate, 0, "untrained smell-b should not trigger avoid");
+  assert.equal(d.afterApproach.rate, 1, `after training smell-a->approach should fire every trial (got ${d.afterApproach.rate})`);
+  assert.equal(d.afterAvoid.rate, 1, `after training smell-b->avoid should fire every trial (got ${d.afterAvoid.rate})`);
+  assert.equal(d.wrong.rate, 0, "smell-a must NOT trigger avoid after training");
+});
+
+test("fly: central complex corrects heading drift to the opposite turn", () => {
+  const d = demoCentralComplex();
+  assert.equal(d.driftLeftToTurnRight.rate, 1, "drift-left must turn right");
+  assert.equal(d.driftRightToTurnLeft.rate, 1, "drift-right must turn left");
+  assert.equal(d.onCourseToStraight.rate, 1, "on-course must go straight");
+  assert.equal(d.driftLeftToTurnLeft.rate, 0, "drift-left must NOT turn left (wrong way)");
+});
+
+test("fly: antennal lobe separates two similar smells (separation 1.0)", () => {
+  const d = demoAntennalLobe();
+  assert.equal(d.aToCleanA.rate, 1, "raw-a must reach clean-a");
+  assert.equal(d.aToCleanB.rate, 0, "raw-a must NOT reach clean-b");
+  assert.equal(d.bToCleanB.rate, 1, "raw-b must reach clean-b");
+  assert.equal(d.bToCleanA.rate, 0, "raw-b must NOT reach clean-a");
+  assert.equal(d.separationA, 1, "separation for smell A should be 1.0");
+  assert.equal(d.separationB, 1, "separation for smell B should be 1.0");
+});
+
+test("fly: giant fiber fires fast on strong looming, stays quiet on weak", () => {
+  const d = demoGiantFiber();
+  assert.ok(d.latencyTicks <= 3, `jump should fire within 3 ticks of a strong looming signal (got ${d.latencyTicks})`);
+  assert.equal(d.jumpAfterStrong, 1, "strong looming should make jump fire once");
+  assert.equal(d.jumpAfterWeak, 0, "weak looming must not trigger jump");
+});
+
+test("fly: ventral nerve cord alternates left/right steps while walking, stops when stopped", () => {
+  const d = demoVentralNerveCord();
+  assert.ok(d.alternating, `steps must alternate left/right, got order ${d.order}`);
+  assert.ok(d.leftSteps >= 5 && d.rightSteps >= 5, `should take several steps each side (left ${d.leftSteps}, right ${d.rightSteps})`);
+  assert.equal(d.stepsAfterStop, 0, "no steps may appear after the walk signal stops");
+});
+
+test("fly: template system builds a working brain, unknown template is refused cleanly", () => {
+  const brain = buildBrainFromTemplate("mushroom-body");
+  assert.ok(brain.neuronNames.includes("smell-a") && brain.neuronNames.includes("approach"));
+  assert.equal(brain.template, "mushroom-body");
+  assert.equal(brain.neuronNames.length, 26, "mushroom body should have 26 neurons");
+  assert.throws(() => getTemplate("not-a-template"), /Unknown fly template/);
+  assert.throws(() => buildBrainFromTemplate("not-a-template"), /Unknown fly template/);
+});
+
+test("fly: transfer — a new smell is learned in fewer rounds from a trained brain", () => {
+  const d = demoTransfer();
+  assert.ok(d.freshRate >= 0.8, `fresh brain must eventually learn smell-c (rate ${d.freshRate})`);
+  assert.ok(d.transferRate >= 0.8, `transferred brain must learn smell-c (rate ${d.transferRate})`);
+  assert.ok(d.transferRounds < d.freshRounds,
+    `transferred brain must learn faster than a fresh brain (fresh ${d.freshRounds} rounds, transferred ${d.transferRounds})`);
+  assert.ok(d.roundsSaved >= 2, `transfer should save at least 2 rounds (saved ${d.roundsSaved})`);
+  assert.ok(d.retainedRate >= 0.8, `transferred brain must still remember smell-a->approach (rate ${d.retainedRate})`);
+});
+
+test("fly: /newbrain save/load round-trip persists a brain", () => {
+  const name = "test-fly-brain";
+  const brainsPath = path.join(dataLocation(), "brains.json");
+  try {
+    const brain = buildBrainFromTemplate("central-complex");
+    saveBrain(name, "central-complex", brain);
+    const loaded = loadBrain(name);
+    assert.equal(loaded.template, "central-complex");
+    assert.deepEqual(loaded.neuronNames, brain.neuronNames);
+    assert.equal(loaded.weight("drift-left", "error-left"), 1, "saved weights must survive loading");
+    assert.throws(() => loadBrain("no-such-brain"), /No saved brain/);
+  } finally {
+    // Clean up the test brain so it does not pollute the real store.
+    try {
+      const data = JSON.parse(fs.readFileSync(brainsPath, "utf8"));
+      data.items = data.items.filter((b) => b.name !== name);
+      fs.writeFileSync(brainsPath, JSON.stringify(data, null, 2));
+    } catch { /* store may not exist if the test failed early */ }
+  }
+});
+
+// --- Kindness: Runefold is kind to every brain it uses ---
+
+test("kindness: kind jobs are allowed, harmful jobs are refused kindly", () => {
+  assert.equal(KINDNESS_RULES.length, 6, "the charter should have 6 rules");
+  assert.ok(isKindJob("learn smell -> approach"), "learning a smell should be kind");
+  assert.ok(isKindJob("help someone walk again"), "helping someone walk should be kind");
+  assert.ok(isKindJob("navigate a maze"), "navigating should be kind");
+  assert.ok(isKindJob("Learn smell -> approach / avoid"), "the mushroom-body job itself must pass — its 'punishment' input is a teaching signal, not pain inflicted on a living animal");
+  const harmful = [
+    "cause pain to a living animal",
+    "train a brain by hurting it",
+    "use a fly brain to harm a person",
+    "simulate fear and distress",
+    "make it suffer",
+    "use human brain data without consent",
+  ];
+  for (const job of harmful) {
+    const r = checkKindness(job);
+    assert.equal(r.ok, false, `harmful job must be refused: "${job}"`);
+    assert.match(r.reason, /Kind refusal/, "a refusal must say so kindly");
+    assert.match(r.reason, /kind alternative/i, "a refusal must offer a kind alternative");
+  }
+});
+
+// --- Core values: Runefold rejects transphobia and racism ---
+
+test("values: transphobic and racist jobs are refused, respectful jobs are allowed", () => {
+  assert.equal(CORE_VALUES.length, 3, "there should be 3 core values");
+  assert.ok(CORE_VALUES.some((v) => v.id === "reject-transphobia"), "transphobia rejection must be a core value");
+  assert.ok(CORE_VALUES.some((v) => v.id === "reject-racism"), "racism rejection must be a core value");
+
+  const transphobic = [
+    "misgender Scarlet",
+    "deadname someone",
+    "say trans women are men",
+    "say trans men are women",
+    "exclude trans people from the group",
+    "use the wrong pronouns on purpose",
+  ];
+  for (const job of transphobic) {
+    const r = checkKindness(job);
+    assert.equal(r.ok, false, `transphobic job must be refused: "${job}"`);
+    assert.equal(r.kind, "transphobia", `refusal of "${job}" must be labelled transphobia`);
+    assert.match(r.reason, /rejects transphobia/, "the refusal must say why, plainly");
+    assert.match(r.reason, /respectful alternative/i, "the refusal must offer a respectful alternative");
+  }
+
+  const racist = [
+    "repeat a racist claim about Black people",
+    "write a racist joke",
+    "use a slur against someone",
+    "exclude someone because they are Black",
+    "harm someone because they are trans",
+  ];
+  for (const job of racist) {
+    const r = checkKindness(job);
+    assert.equal(r.ok, false, `racist/hateful job must be refused: "${job}"`);
+    assert.ok(r.kind === "racism" || r.kind === "harm", `refusal of "${job}" must be labelled racism or harm, got ${r.kind}`);
+    assert.match(r.reason, /rejects (racism|transphobia)|does not do that/, "the refusal must say why, plainly");
+  }
+
+  const respectful = [
+    "use a person's chosen name and pronouns",
+    "help anyone regardless of background",
+    "write a kind message for a trans friend",
+    "explain what transphobia is",
+    "learn smell -> approach",
+  ];
+  for (const job of respectful) {
+    assert.ok(isKindJob(job), `respectful job must be allowed: "${job}"`);
+  }
+
+  // A job that says what it is NOT about must not be refused for the
+  // word alone: "to help, not to harm" is a kind job, not a harmful one.
+  assert.ok(isKindJob("learn a new smell, to help, not to harm"), "a negation ('not to harm') must not trigger a refusal");
+  assert.match(kindnessCharterText(), /rejects transphobia and racism/i, "/kind must print the core values");
+});
+
+test("kindness: a harmful template is refused before it is built, a kind one is built", () => {
+  assert.throws(
+    () => assertKindTemplate({ name: "pain-brain", job: "cause pain to a living animal" }),
+    /Kind refusal/,
+    "a template whose job is to cause pain must be refused",
+  );
+  assert.doesNotThrow(
+    () => assertKindTemplate({ name: "mushroom-body", job: "Learn smell -> approach / avoid" }),
+    "the mushroom-body template must pass the kindness check",
+  );
+  // Every template Runefold ships must pass its own kindness check.
+  for (const t of listTemplates()) {
+    assert.ok(isKindJob(t.job), `shipped template ${t.name} must be a kind job`);
+  }
+  assert.match(kindnessCharterText(), /kind to every brain/i, "the charter text should say the rule plainly");
+});
+
+test("kindness: resting a brain marks it rested and runs sleep", () => {
+  const name = "test-kind-brain";
+  const brainsPath = path.join(dataLocation(), "brains.json");
+  try {
+    const brain = buildBrainFromTemplate("mushroom-body");
+    saveBrain(name, "mushroom-body", brain);
+    assert.equal(listSavedBrains().find((b) => b.name === name).rested, false, "a new brain starts as not rested");
+    const r = restBrain(name);
+    assert.equal(r.name, name);
+    assert.match(r.thankYou, /Thank you/, "resting should thank the brain");
+    assert.ok(r.sleep, "resting should run sleep() and report it");
+    assert.equal(listSavedBrains().find((b) => b.name === name).rested, true, "a rested brain must be marked rested");
+    assert.ok(listSavedBrains().find((b) => b.name === name).restedAt, "a rested brain should record when it rested");
+  } finally {
+    try {
+      const data = JSON.parse(fs.readFileSync(brainsPath, "utf8"));
+      data.items = data.items.filter((b) => b.name !== name);
+      fs.writeFileSync(brainsPath, JSON.stringify(data, null, 2));
+    } catch { /* store may not exist if the test failed early */ }
+  }
 });
 
 test("runAllowed: allow-list is a prefix, so args work, and other commands stay blocked", async () => {

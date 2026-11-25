@@ -1,4 +1,4 @@
-// Runefold Brain v0.1 — a tiny brain-like spiking neural core.
+// Runefold Brain v0.1 + v0.2 — a tiny brain-like spiking neural core.
 //
 // What this is, in plain words:
 //   A small network of fake neurons that talk to each other with SPIKES,
@@ -8,10 +8,19 @@
 //
 // What this is NOT:
 //   Not a real brain, not AGI, and it does NOT train the LLM weights in
-//   Runefold (Ollama / Qwen). It is a toy network — 12 neurons — so Scarlet
-//   can see and touch the ideas: spikes, Hebbian learning, and sleep.
-//   The big LLM still does the talking; this brain is a separate, small
-//   experiment living next to it.
+//   Runefold (Ollama / Qwen). It is a toy network so Scarlet can see and
+//   touch the ideas: spikes, Hebbian learning, and sleep. The big LLM
+//   still does the talking; this brain is a separate, small experiment
+//   living next to it.
+//
+// v0.2 change (and the ONLY change to the neuron model): the network is
+// now generic. createBrain() still builds the original 12-neuron
+// pink+puppy -> happy brain, exactly as before. createNetwork() builds
+// ANY network — same neurons, same tick, same STDP, same sleep — from a
+// list of neuron names and a list of connections. The fly templates in
+// core/fly.js use createNetwork(), so there is still only ONE neuron
+// model in Runefold, not two. If you change the neuron here, every
+// template changes with it.
 //
 // No npm dependencies. Pure Node, ES module ("type": "module").
 //
@@ -33,8 +42,9 @@
 // STDP_WINDOW (5 ticks) — "just before" means within 5 ticks. If neuron A
 //   spikes and neuron B spikes within 5 ticks after A, that counts as
 //   A causing B, and the A->B connection gets stronger.
-// LEARNING_RATE (0.08) — how much a connection changes in one learning
+// LEARNING_RATE (0.03) — how much a connection changes in one learning
 //   event. Small on purpose: a brain does not rewire itself in one go.
+//   (The comment in v0.1 said 0.08; the code has always used 0.03.)
 // MIN_WEIGHT / MAX_WEIGHT (0 / 1) — weights are clamped between 0 and 1.
 //   A connection can never go negative, and never pass on more than a
 //   full spike.
@@ -79,11 +89,50 @@ function initialWeight(from, to) {
   return base + ((from * 7 + to * 3) % 5) * 0.05;
 }
 
-export function createBrain() {
-  const neurons = NEURON_NAMES.map((name, id) => ({
+// ---------------------------------------------------------------------------
+// createNetwork(names, connections, options) — the ONE neuron model.
+//
+// names: ["smell-a", "kc-01", ...] — every neuron, in order.
+// connections: [{ from: "smell-a", to: "kc-01", weight: 1.0 }, ...]
+//   `from`/`to` may be names or numeric ids. Weight defaults to 0.3.
+//   `protected: true` marks a link as explicitly taught (sleep never
+//   prunes it). Omit it for ordinary links.
+// options: { layers: { "smell-a": "input", ... }, hidden: ["kc-01", ...],
+//            input: [...], output: [...] }
+//   Only `hidden` and `input` are used, by train(), to decide which
+//   links to protect after teaching. If omitted, layers are guessed:
+//   the first third of the neurons are "input", the middle third
+//   "hidden", the last third "output". Guessing is fine for the fly
+//   templates that pass an explicit list, and harmless otherwise.
+// Returns the same brain object createBrain() always returned:
+//   stimulate(), tick(), settle(), measure(), train(), sleep(),
+//   getState(), weight(), plus .neurons, .connections, .neuronNames.
+// ---------------------------------------------------------------------------
+export function createNetwork(neuronNames, connectionSpecs = [], options = {}) {
+  const names = [...neuronNames];
+  const nameToId = new Map(names.map((n, i) => [n, i]));
+  const layerOf = {};
+  for (const n of names) {
+    if (options.layers && options.layers[n]) layerOf[n] = options.layers[n];
+    else if (options.input && options.input.includes(n)) layerOf[n] = "input";
+    else if (options.hidden && options.hidden.includes(n)) layerOf[n] = "hidden";
+    else if (options.output && options.output.includes(n)) layerOf[n] = "output";
+    else layerOf[n] = "hidden"; // default middle layer
+  }
+  // If no layer info was given at all, split into thirds.
+  if (!options.layers && !options.input && !options.hidden && !options.output) {
+    const third = Math.max(1, Math.floor(names.length / 3));
+    names.forEach((n, i) => {
+      layerOf[n] = i < third ? "input" : i < names.length - third ? "hidden" : "output";
+    });
+  }
+  const inputIds = new Set(names.filter((n) => layerOf[n] === "input").map((n) => nameToId.get(n)));
+  const hiddenIds = new Set(names.filter((n) => layerOf[n] === "hidden").map((n) => nameToId.get(n)));
+
+  const neurons = names.map((name, id) => ({
     id,
     name,
-    layer: id < 4 ? "input" : id < 8 ? "hidden" : "output",
+    layer: layerOf[name],
     v: 0,              // membrane potential (charge), 0 = empty
     refractory: 0,     // ticks left resting after a spike
     lastSpikeTick: -1000, // tick of the most recent spike (-1000 = never)
@@ -91,18 +140,27 @@ export function createBrain() {
     spikedThisTick: false,
   }));
 
-  // Connections: every input -> every hidden, every hidden -> every output.
-  const connections = [];
-  for (const from of LAYERS.input) {
-    for (const to of LAYERS.hidden) {
-      connections.push({ from, to, weight: initialWeight(from, to), protected: false, useCount: 0, totalUse: 0 });
+  const connections = connectionSpecs.map((spec) => {
+    const from = typeof spec.from === "number" ? spec.from : nameToId.get(spec.from);
+    const to = typeof spec.to === "number" ? spec.to : nameToId.get(spec.to);
+    if (from === undefined || to === undefined) {
+      throw new Error(`Unknown neuron in connection: ${spec.from} -> ${spec.to}`);
     }
-  }
-  for (const from of LAYERS.hidden) {
-    for (const to of LAYERS.output) {
-      connections.push({ from, to, weight: initialWeight(from, to), protected: false, useCount: 0, totalUse: 0 });
-    }
-  }
+    return {
+      from, to,
+      weight: spec.weight === undefined ? 0.3 : spec.weight,
+      protected: !!spec.protected,
+      // fixed: a structural / teacher link that STDP must not change.
+      // Example: reward -> approach in the mushroom body. If STDP were
+      // allowed to strengthen it, the teacher would learn to trigger
+      // the answer by itself, the answer would fire on the same tick as
+      // the Kenyon cells, and the Kenyon cells would get no credit
+      // (STDP needs cause strictly before effect) — learning stalls.
+      // Fixed links still carry spikes; they just never change weight.
+      fixed: !!spec.fixed,
+      useCount: 0, totalUse: 0,
+    };
+  });
   const outgoing = new Map(); // from id -> [connection, ...]
   const incoming = new Map(); // to id -> [connection, ...]
   for (const c of connections) {
@@ -123,20 +181,20 @@ export function createBrain() {
   const log = []; // short human-readable log of recent events
 
   function nameOf(idOrName) {
-    if (typeof idOrName === "number") return NEURON_NAMES[idOrName];
+    if (typeof idOrName === "number") return names[idOrName];
     return idOrName;
   }
   function idOf(name) {
-    const id = NEURON_NAMES.indexOf(name);
-    if (id === -1) throw new Error(`Unknown neuron: ${name}`);
+    const id = nameToId.get(name);
+    if (id === undefined) throw new Error(`Unknown neuron: ${name}`);
     return id;
   }
 
   // Feed charge into one or more input neurons. Strength 1.2 is just
   // over the threshold (1.0), so a stimulated neuron spikes on the next
   // tick; strength 0.4 is well under it, so it stays quiet.
-  function stimulate(names, strength = 1.2) {
-    const list = Array.isArray(names) ? names : [names];
+  function stimulate(inputNames, strength = 1.2) {
+    const list = Array.isArray(inputNames) ? inputNames : [inputNames];
     for (const n of list) {
       const id = typeof n === "number" ? n : idOf(n);
       externalInput[id] += strength;
@@ -152,16 +210,17 @@ export function createBrain() {
   function applyStdp(spikedId) {
     if (!plasticity) return;
     for (const c of incoming.get(spikedId) || []) {
+      if (c.fixed) continue; // teacher / structural links never learn
       const dt = tick - neurons[c.from].lastSpikeTick;
       // dt must be >= 1: the cause has to spike strictly BEFORE the
       // effect. Same-tick firing is not a cause, it is a coincidence.
       if (dt >= 1 && dt <= STDP_WINDOW) {
-        // Pre spiked before (or with) post: strengthen.
         const change = LEARNING_RATE * (1 - dt / (STDP_WINDOW + 1));
         c.weight = Math.min(MAX_WEIGHT, c.weight + change);
       }
     }
     for (const c of outgoing.get(spikedId) || []) {
+      if (c.fixed) continue;
       const dt = tick - neurons[c.to].lastSpikeTick;
       if (dt > 0 && dt <= STDP_WINDOW) {
         // Post (the target) spiked before pre: this link did not cause
@@ -229,7 +288,7 @@ export function createBrain() {
   // input -> hidden -> output and fade away. That is the honest
   // "before vs after" number: a rate per trial, not a yes/no.
   // Returns { spikes, steps, rate } where steps = number of trials.
-  function measure(inputNames, outputName = "happy", steps = 20) {
+  function measure(inputNames, outputName, steps = 20) {
     const outId = idOf(outputName);
     const before = neurons[outId].spikeCount;
     const wasPlastic = plasticity;
@@ -243,7 +302,14 @@ export function createBrain() {
     } finally {
       plasticity = wasPlastic;
     }
-    settle(3);
+    // Rest after measuring: 10 quiet ticks, not 3. With only 3, charge
+    // left in the output neuron from the last trial could push it over
+    // threshold a tick early in the NEXT training round — same tick as
+    // its inputs — and STDP needs the cause strictly before the effect,
+    // so that round would teach nothing. (Found while building the fly
+    // transfer test: learning stalled at weight 0.11 until this rest
+    // was lengthened.) Measuring must leave the brain as it found it.
+    settle(10);
     const spikes = neurons[outId].spikeCount - before;
     return { spikes, steps, rate: spikes / steps };
   }
@@ -255,22 +321,22 @@ export function createBrain() {
   // so STDP strengthens input -> hidden -> output links that fired in
   // the right order. Those links are marked protected: sleep will never
   // prune something that was explicitly taught.
-  function train(inputNames, outputName = "happy", rounds = 12) {
+  function train(inputNames, outputName, rounds = 12) {
     const outId = idOf(outputName);
     for (let r = 0; r < rounds; r++) {
       // Let the input spike travel: input fires, hidden fires a tick
       // later, and only then show the right answer (the output), so
-      // STDP sees hidden just before happy and strengthens that link.
+      // STDP sees hidden just before output and strengthens that link.
       stimulate(inputNames, 1.2);
       tickFn(); tickFn(); tickFn();
       stimulate(outputName, 1.2);
       tickFn(); tickFn();
       settle(2);
-      // Protect every link on the path that was actually used this round.
+      // Protect every link on the path that was actually used this round:
+      // any link feeding the trained output, and any input -> hidden link.
       for (const c of connections) {
-        if (c.useCount > 0 && (LAYERS.input.includes(c.from) || c.to === outId)) {
-          // Only protect links feeding the trained output (via hidden).
-          if (c.to === outId || LAYERS.hidden.includes(c.to)) c.protected = true;
+        if (c.useCount > 0 && (c.to === outId || (hiddenIds.has(c.to) && inputIds.has(c.from)))) {
+          c.protected = true;
         }
       }
     }
@@ -281,9 +347,9 @@ export function createBrain() {
   // - Links used a lot recently get a little stronger (memory kept).
   // - Links never used recently fade a little (memory forgotten).
   // - Very weak, unprotected, unused links are pruned (weight -> 0).
-  // - Protected links (explicitly taught, e.g. pink+puppy->happy) are
-  //   never pruned, and barely fade. Nothing explicitly taught is
-  //   silently deleted — same rule as Runefold's /consolidate.
+  // - Protected links (explicitly taught) are never pruned, and barely
+  //   fade. Nothing explicitly taught is silently deleted — same rule
+  //   as Runefold's /consolidate.
   function sleep() {
     let strengthened = 0;
     let decayed = 0;
@@ -329,8 +395,9 @@ export function createBrain() {
         spikeCount: n.spikeCount, refractory: n.refractory,
       })),
       connections: connections.map((c) => ({
-        from: NEURON_NAMES[c.from], to: NEURON_NAMES[c.to],
+        from: names[c.from], to: names[c.to],
         weight: Number(c.weight.toFixed(3)), protected: c.protected,
+        fixed: c.fixed,
         useCount: c.useCount, totalUse: c.totalUse,
       })),
       log: [...log],
@@ -339,7 +406,7 @@ export function createBrain() {
 
   function weight(from, to) {
     const c = connections.find(
-      (x) => NEURON_NAMES[x.from] === nameOf(from) && NEURON_NAMES[x.to] === nameOf(to),
+      (x) => names[x.from] === nameOf(from) && names[x.to] === nameOf(to),
     );
     return c ? c.weight : 0;
   }
@@ -347,10 +414,32 @@ export function createBrain() {
   const brain = {
     stimulate, tick: tickFn, settle, measure, train, sleep, getState, weight,
     neurons, connections, nameOf, idOf,
+    neuronNames: names,
     setPlasticity: (v) => { plasticity = !!v; },
     get plasticity() { return plasticity; },
   };
   return brain;
+}
+
+// The original v0.1 brain, unchanged in behaviour: 12 neurons,
+// input -> hidden -> output, deterministic starting weights.
+export function createBrain() {
+  const connections = [];
+  for (const from of LAYERS.input) {
+    for (const to of LAYERS.hidden) {
+      connections.push({ from, to, weight: initialWeight(from, to) });
+    }
+  }
+  for (const from of LAYERS.hidden) {
+    for (const to of LAYERS.output) {
+      connections.push({ from, to, weight: initialWeight(from, to) });
+    }
+  }
+  return createNetwork(NEURON_NAMES, connections, {
+    input: NEURON_NAMES.slice(0, 4),
+    hidden: NEURON_NAMES.slice(4, 8),
+    output: NEURON_NAMES.slice(8, 12),
+  });
 }
 
 // A one-shot demo for the terminal (/brain): measure pink+puppy -> happy

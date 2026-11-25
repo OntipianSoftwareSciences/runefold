@@ -160,6 +160,236 @@ Code: `core/brain.js` — pure Node, no dependencies. API:
 `createBrain()`, `stimulate()`, `tick()`, `train()`, `measure()`,
 `sleep()`, `getState()`, plus `demoBrain()` for the terminal demo.
 
+## Runefold Brain v0.2 — Fly Brain Templates (reverse-engineered)
+
+The fruit fly (*Drosophila melanogaster*) is the one brain science has
+a complete wiring diagram for: FlyWire, Oct 2024 — 139,255 neurons,
+54.5 million synapses, 8,453 neuron types (Dorkenwald et al., *Nature*
+2024); the male central nervous system map (2026) is 166,700 neurons.
+That full dataset is about 100 terabytes and cannot be downloaded or
+run here. So v0.2 reverse-engineers the CIRCUIT DESIGNS, not the data:
+the fly brain is built from small, reusable modules, each with a clear
+job, and each module's wiring pattern is published and open. We copy
+the pattern at toy scale, using the ONE neuron model from
+`core/brain.js` (LIF spikes + STDP, via `createNetwork()` — v0.1's
+`createBrain()` is now just that same builder with the original 12
+neurons). There is no second neuron model, no living fly brain, and no
+100 TB download. Shiu et al. 2024 showed a connectome-only model of
+the fly brain can predict real sensorimotor behaviour — wiring alone,
+with simple spiking neurons, already does jobs.
+
+A template is a plain object in `core/fly.js` — `{ name, job,
+description, biology, neurons, connections, inputs, outputs,
+learnable }` — so making a new brain is just a template + a name.
+`listTemplates()`, `getTemplate(name)`, `buildBrainFromTemplate(name)`.
+
+### The 5 templates (67 neurons total — toy scale, on purpose)
+
+| Template | Neurons | Job | Measured result |
+|---|---|---|---|
+| mushroom-body | 26 | Learn smell -> approach / avoid | smell-a -> approach 0/20 before, 20/20 after; smell-b -> avoid 0/20 before, 20/20 after; wrong pairing (smell-a -> avoid) 0/10 |
+| central-complex | 11 | Hold a heading, correct drift | drift-left -> turn-right 10/10, drift-right -> turn-left 10/10, on-course -> go-straight 10/10, wrong turn 0/10 |
+| antennal-lobe | 10 | Sort two similar smells apart | raw-a -> clean-a 10/10, raw-a -> clean-b 0/10; raw-b -> clean-b 10/10, raw-b -> clean-a 0/10 (separation 1.0) |
+| giant-fiber | 10 | Fast escape from a looming shadow | strong looming -> jump in 3 ticks (looming -> giant fiber -> jump, 1 tick per layer); weak looming -> jump 0 times |
+| ventral-nerve-cord | 10 | Walk: alternating left / right steps | 30 ticks: left 10 steps, right 9, alternating yes; 0 steps after the walk signal stopped |
+
+- **Mushroom body** — the fly's learning/memory centre. ~2,000 Kenyon
+  cells in a real fly, 20 here: 10 listen to smell-a, 10 to smell-b
+  (sparse coding). A reward/punishment signal teaches the Kenyon ->
+  output links. Those teacher links are marked `fixed: true`, so STDP
+  cannot change them — see "Bugs found" below.
+- **Central complex** — the fly's compass. Drift left -> turn right,
+  drift right -> turn left. Hardwired, not learned.
+- **Antennal lobe** — smell sorting. Each raw smell drives its own
+  glomerulus strongly (1.0) and the other weakly (0.3 cross-talk), so
+  the output is cleaner than the input.
+- **Giant fiber** — the fastest escape in the fly. One strong looming
+  signal fires the jump in a couple of ticks; a weak one does nothing.
+- **Ventral nerve cord** — the fly's spinal cord. A pacemaker + relay
+  makes leg-left and leg-right alternate; stopping the walk signal
+  stops the steps (after one spike already in flight finishes).
+
+### Transfer learning — general learning
+
+The templates are not just 5 separate demos. They are reusable
+SKILLS a brain can carry into a NEW task and learn faster — that is
+the point of the reverse-engineering, and the step toward general
+learning.
+
+How Runefold does it (`buildTransferBrain()` in `core/fly.js`):
+1. Train a mushroom-body brain on Task A: smell-a -> approach,
+   smell-b -> avoid.
+2. Build a new brain with the same neurons and connections, copying
+   the source's learned Kenyon -> output weights — HALVED (x0.5).
+   Halved, not copied whole: the new smell is similar, not identical,
+   so the new pathway starts closer to the answer but still has to
+   learn. Copying it whole would be cheating.
+3. Add 4 brand-new Kenyon cells for a new smell (smell-c), wired
+   smell-c -> new cells at 1.0, and new cells -> approach / avoid at
+   the copied (halved) weights. Everything else is copied, so the new
+   brain keeps the old skills too.
+4. Retrain ONLY smell-c -> approach, one round at a time, until it
+   reaches 80%. Count the rounds. The control is the same transfer
+   from an UNTRAINED source, so its new links start at the ordinary
+   0.08 — same code, only the weights differ.
+
+Measured numbers (`/fly transfer`, also a test — no faking):
+- Fresh brain: smell-c -> approach reached 80% after **7 rounds**
+- Transferred brain: smell-c -> approach reached 80% after **3 rounds**
+- Rounds saved: **4**. Transferred brain still remembers
+  smell-a -> approach: rate **1.0**.
+
+The honest limit: this is still narrow transfer between very similar
+tasks (one smell to another smell, same outputs) — not human-like
+general intelligence. But it is the real shape of general learning:
+learn one job, reuse the skill, learn the next job faster. A fly that
+learned one smell can learn a new smell faster; Runefold now can too.
+
+### Kindness to every brain
+
+Runefold is kind to any brain it uses — fly, worm, or human. That is
+code, not just a note: `core/kindness.js` holds a charter
+(`KINDNESS_RULES`, 6 rules) and a gate, `checkKindness(job)`, that
+runs before a brain is built (`buildBrainFromTemplate()`), before a
+new brain is saved (`/newbrain`), and before a transfer
+(`/transfer`). If a job fails the check, Runefold refuses it kindly
+and does NOT build that brain.
+
+The rules, in plain words:
+1. A simulated brain is a model, not a living animal — treat it with
+   respect anyway, never as a toy to hurt.
+2. Do not simulate pain, fear, or distress as a job, and do not train
+   a brain by hurting it.
+3. Do not use a brain — fly, worm, or human — for a job that harms a
+   living being.
+4. Human brain data needs consent and must stay private. Never use it
+   without permission.
+5. If a job would cause suffering, refuse it kindly and offer a kind
+   alternative.
+6. When a brain finishes a job, thank it and rest it — run
+   `sleep()` / `consolidate()` instead of just discarding it.
+
+`/kind` prints the charter and lists the brains Runefold has made and
+whether they rested. `/kind rest <name>` thanks a saved brain, runs
+`sleep()` on it, and marks it rested in `brains.json`.
+
+**Core values — Runefold rejects transphobia and racism.**
+This is a core principle, in the same check (`core/kindness.js`,
+`CORE_VALUES`, 3 values). Runefold treats trans people, and people
+of every race and background, with respect. It uses the names and
+pronouns people ask for, and it does not repeat slurs, misgendering,
+or racist ideas as if they were true. If a user asks Runefold to do a
+job that is transphobic or racist — to misgender someone, to repeat a
+hateful claim, to exclude or harm someone because they are trans or
+because of their race — Runefold refuses that job kindly, in the
+terminal, explains briefly why in plain words, and offers a kind,
+respectful alternative instead. It does NOT do the job and then add a
+disclaimer. `/kind <job...>` checks any job against the charter, e.g.
+`/kind misgender Scarlet` is refused, `/kind use a person's chosen
+name and pronouns` is allowed.
+
+The honest limit: a simulated brain in code does not feel pain the
+way a living animal does. Scarlet wants Runefold to act kindly
+anyway, and that rule shapes what jobs it will and will not do.
+
+### Bugs found while building v0.2 (kept, not hidden)
+
+1. **Cross-talk between competing outputs.** The mushroom body has
+   two outputs (approach / avoid). Each training round sent 0.8 of
+   charge to BOTH, and with only 2 quiet ticks between rounds the
+   charge did not leak away — so the WRONG output accumulated, spiked,
+   and STDP strengthened the wrong link (smell-a -> avoid, rate 1.0).
+   Fix: a `trainAssociation()` helper that rests 8 ticks between
+   lessons, the brain-like fix. Wrong pairing is now 0/10.
+2. **The teacher learned the answer by itself.** The reward ->
+   approach link was plastic, so after 4 rounds it grew to ~0.98 and
+   the answer spiked on the reward alone, on the SAME tick as the
+   Kenyon cells — and STDP needs cause strictly before effect, so the
+   Kenyon cells got zero credit and learning stalled at weight 0.11.
+   Fix: teacher links are `fixed: true` — STDP skips them. Learning
+   now grows steadily (+0.025/round) and the mushroom-body weight
+   reaches 0.38.
+3. **Measuring left charge behind.** `measure()` only settled 3 ticks
+   at the end, leaving residual charge that could make the output
+   spike a tick early in the next training round. Fix: `measure()`
+   now settles 10 ticks, so measuring leaves the brain as it found it.
+   (v0.1's tests still pass after this change.)
+
+### How to run v0.2
+
+```
+node --test test.js        # 26 tests: 13 original + 9 fly + 3 kindness + 1 values
+node index.js              # then, in the terminal:
+  /fly                                   # list the 5 templates
+  /fly mushroom-body                     # run the mushroom-body demo
+  /fly transfer                          # transfer demo: fresh 7 rounds vs transferred 3
+  /template list                         # same list as /fly
+  /newbrain mushroom-body my-first-fly-brain
+  /brain my-first-fly-brain              # run a saved brain's demo
+  /transfer my-smell-brain mushroom-body my-new-smell-brain
+  /kind                                  # charter + core values + saved brains
+  /kind misgender Scarlet                # refused, kindly
+  /kind rest my-first-fly-brain          # thank it and rest it (sleep)
+```
+
+No Ollama is needed for `/fly`, `/newbrain`, `/transfer`, or `/kind`.
+Normal Runefold chat still needs `ollama serve` first. Saved brains
+live in `~/.runefold/brains.json` — plain JSON, inspectable and
+deletable by hand.
+
+A real terminal session (observed output, shortened):
+
+```
+🫧 runefold ❯ /fly
+Fly brain templates — reverse-engineered from the fruit fly (FlyWire 2024)
+  mushroom-body (26 neurons) — Learn smell -> approach / avoid [learnable]
+  central-complex (11 neurons) — Hold a heading, correct drift
+  antennal-lobe (10 neurons) — Sort two similar smells apart
+  giant-fiber (10 neurons) — Fast escape from a looming shadow
+  ventral-nerve-cord (10 neurons) — Walk: alternating left / right steps
+
+🫧 runefold ❯ /fly mushroom-body
+  smell-a -> approach: 0/20 before training, 20/20 after
+  smell-b -> avoid: 0/20 before training, 20/20 after
+  wrong pairing (smell-a -> avoid): 0/10 — stays quiet, as it should
+  kc-a-01 -> approach weight: now 0.38
+
+🫧 runefold ❯ /fly transfer
+  fresh brain: smell-c -> approach reached 80% after 7 training round(s) (rate 1)
+  transferred brain: smell-c -> approach reached 80% after 3 training round(s) (rate 1)
+  transferred brain still remembers smell-a -> approach: rate 1
+  rounds saved: 4 — the new smell reused the learned approach pathway
+
+🫧 runefold ❯ /newbrain mushroom-body my-first-fly-brain
+New brain "my-first-fly-brain" saved. Template: mushroom-body
+Neurons: 26 | Connections: 62
+Inputs: smell-a, smell-b, reward, punishment
+Outputs: approach, avoid
+
+🫧 runefold ❯ /kind misgender Scarlet
+Kind refusal: that job is about misgendering someone, and Runefold rejects transphobia.
+Runefold uses the names and pronouns people ask for, and it does not repeat claims that
+trans people are not who they say they are. A respectful alternative: use the name and
+pronouns the person asks for, and help anyone regardless of who they are or where they
+come from.
+
+🫧 runefold ❯ /kind rest my-first-fly-brain
+Thank you, my-first-fly-brain. You did your job, and now you rest.
+Brain "my-first-fly-brain" (mushroom-body) rested at 2026-11-25T21:18:13.402Z.
+Sleep: strengthened 0, decayed 62, pruned 40.
+```
+
+Note on that last line: the brain rested there was untrained, so
+sleep decayed and pruned its unused links — that is what sleep is
+for. A trained brain's taught links are protected and survive sleep.
+
+Files: `core/fly.js` (templates, demos, transfer, save/load/rest),
+`core/kindness.js` (charter, core values, the job check),
+`core/brain.js` (the ONE neuron model, now generic via
+`createNetwork()`; `fixed` links; `measure()` rests 10 ticks),
+`index.js` (`/fly`, `/template`, `/newbrain`, `/brain <name>`,
+`/transfer`, `/kind`), `test.js` (26 tests).
+
 ## The agent's own cursor (web/cursor.html)
 Open it in a browser. The blob is NOT your mouse — it's an agent with
 a tiny decision loop: energy + curiosity + boredom → pick a goal →
