@@ -21,51 +21,111 @@
 //   refused kindly before any command runs — the same refusal a /command
 //   would get. No second ethics rule was invented.
 //
-// Where /space and /physics and /alien do not exist yet:
-//   The topic still maps to the intended command, but it is marked
-//   available: false and given a local-knowledge note that says plainly
-//   the command is coming next. Nothing is faked and no command is run.
+// Space and physics are REAL jobs now:
+//   "tell me about black holes", "what is gravity?", the NASA picture and the
+//   near-Earth asteroid list all map onto local jobs in core/space.js. The
+//   answers work offline; Wikipedia/NASA are added only when reachable.
+//   "who are you?" is still an honest local answer, not a built alien job.
 
 import { checkKindness } from "./kindness.js";
+import { SPACE_TOPICS, PHYSICS_KEYS } from "./space.js";
 
 // The table is deliberately small and easy to add to. Add one object here:
 //   phrases  — exact simple phrases (matched after lowercasing and trimming)
 //   pattern  — a keyword pattern for a looser, medium-confidence match
-//   command  — an EXISTING command from index.js, never a new one
+//   command  — an EXISTING command in index.js (/space, /physics, ...)
 //   args     — its existing arguments ("" for none)
 // Order matters: the more specific rules come first, so "fly mushroom body"
 // reaches /fly mushroom-body before the plain "fly" rule sees "fly".
-const TOPICS = [
-  { topic: "black hole", pattern: /\bblack holes?\b/i, command: "/space" },
-  { topic: "mars", pattern: /\bmars\b/i, command: "/space" },
-  { topic: "moon", pattern: /\bmoon\b/i, command: "/space" },
-  { topic: "planet", pattern: /\bplanets?\b/i, command: "/space" },
-  { topic: "space", pattern: /\bspace\b/i, command: "/space" },
-  { topic: "gravity", pattern: /\bgravity\b/i, command: "/physics" },
-  { topic: "quantum", pattern: /\bquantum\b/i, command: "/physics" },
-  { topic: "atom", pattern: /\batoms?\b/i, command: "/physics" },
-];
 
-// A tiny, honest local answer for the commands that are not built yet.
-const COMING_NEXT_SPACE =
-  "I can name the topic, but this offline terminal has no live reference so " +
-  "I cannot verify the details here.";
+// A bare word like "space" is not a question. Ask ONE thing, never guess.
+const SPACE_QUESTION =
+  "Which space question? Try: tell me about black holes, what is gravity?, " +
+  "what is today's space picture?, or are any asteroids coming near Earth?";
+
+// "Who are you?" is answered locally, and says honestly that a full answer
+// about Runefold's identity is still coming next.
 const COMING_NEXT_ALIEN =
   "Local knowledge — I'm Runefold, a local-first terminal assistant with a " +
   "tiny spiking-brain experiment. Ask 'what can you do?' to see what I can do now.";
 
-const TOPIC_RULES = TOPICS.map((t) => ({
-  id: `topic-${t.topic}`,
-  phrases: [t.topic],
-  pattern: t.pattern,
-  command: t.command,
-  args: t.topic,
-  confidence: "medium",
-  // /space and /physics are not in index.js yet. Say so; do not fake them.
-  available: false,
-  source: "local knowledge",
-  reply: COMING_NEXT_SPACE,
-}));
+// The four questions Scarlet asked for, plus the NASA jobs. These are exact
+// phrases, so they are high-confidence and do not depend on a broad keyword.
+const SPACE_QUESTION_RULES = [
+  {
+    id: "space-picture",
+    phrases: [
+      "what is today's space picture", "what is today’s space picture",
+      "today's space picture", "today’s space picture", "space picture today",
+    ],
+    pattern: /\bspace picture\b|\bapod\b/i,
+    command: "/apod", args: "", confidence: "high",
+    source: "NASA APOD",
+  },
+  {
+    id: "near-earth-asteroids",
+    phrases: [
+      "are any asteroids coming near earth", "any asteroids coming near earth",
+      "asteroids coming near earth", "near earth asteroids", "near-earth asteroids",
+    ],
+    pattern: /\bnear[- ]earth asteroids?\b|\basteroids? coming near earth\b/i,
+    command: "/asteroids", args: "", confidence: "high",
+    source: "NASA NeoWs",
+  },
+  {
+    id: "space-black-holes-question",
+    phrases: ["tell me about black holes", "tell me about a black hole"],
+    pattern: null,
+    command: "/space", args: "black-hole", confidence: "high",
+    source: "local knowledge + Wikipedia",
+  },
+  {
+    id: "physics-gravity-question",
+    phrases: ["what is gravity", "tell me about gravity", "explain gravity"],
+    pattern: null,
+    command: "/physics", args: "gravity", confidence: "high",
+    source: "local knowledge + Wikipedia",
+  },
+  {
+    id: "space-mars-question",
+    phrases: ["tell me about mars", "what is mars"],
+    pattern: null,
+    command: "/space", args: "mars", confidence: "high",
+    source: "local knowledge + Wikipedia",
+  },
+  {
+    id: "space-too-vague",
+    phrases: ["space", "tell me about space", "space facts"],
+    pattern: /\bspace\b/i,
+    command: null, args: "", confidence: "low",
+    question: SPACE_QUESTION,
+    source: "plain-text matcher",
+  },
+];
+
+// One rule per local topic, built from the SAME topic objects core/space.js
+// uses to answer. There is no second knowledge table here.
+function aliasPattern(aliases) {
+  const parts = aliases
+    .map((a) => String(a).toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length);
+  return parts.length ? new RegExp(`\\b(${parts.join("|")})\\b`, "i") : null;
+}
+
+const TOPIC_RULES = SPACE_TOPICS.map((t) => {
+  const command = PHYSICS_KEYS.has(t.key) ? "/physics" : "/space";
+  return {
+    id: `topic-${t.key}`,
+    phrases: [t.key, ...t.aliases],
+    pattern: aliasPattern(t.aliases),
+    command,
+    args: t.key,
+    confidence: "medium",
+    available: true,
+    source: "local knowledge + Wikipedia when online",
+  };
+});
 
 const RULES = [
   {
@@ -107,6 +167,7 @@ const RULES = [
     pattern: null,
     command: "/fly", args: "mushroom-body", confidence: "high",
   },
+  ...SPACE_QUESTION_RULES,
   {
     id: "friends",
     phrases: [
@@ -254,11 +315,20 @@ const PLAIN_MEANINGS = {
   "/kind": "what are your rules?",
   "/session": "what did you learn last time?",
   "/help": "what can you do?",
+  "/apod": "what is today's space picture?",
+  "/asteroids": "are any asteroids coming near Earth?",
+  "/space black-hole": "tell me about black holes",
+  "/physics gravity": "what is gravity?",
+  "/space mars": "tell me about Mars",
 };
 
 export function plainTextMeaning(parsed) {
   const key = heardAs(parsed);
-  return PLAIN_MEANINGS[key] || parsed.args || "what you asked";
+  if (PLAIN_MEANINGS[key]) return PLAIN_MEANINGS[key];
+  const topic = String(parsed.args || "").replace(/-/g, " ");
+  if (parsed.command === "/space" && topic) return `tell me about ${topic}`;
+  if (parsed.command === "/physics" && topic) return `what is ${topic}?`;
+  return parsed.args || "what you asked";
 }
 
 // parsePlainText(text) -> { command, args, confidence, question }
@@ -297,6 +367,17 @@ export function parsePlainText(text) {
   if (new Set(patternHits.map((r) => r.id)).size > 1) return askOneQuestion();
 
   const rule = patternHits[0];
+
+  // A vague match ("space" on its own) asks one question; it never runs a job.
+  if (rule.question) {
+    return result({
+      confidence: "low",
+      question: rule.question,
+      route: "question",
+      source: rule.source || "plain-text matcher",
+    });
+  }
+
   const out = result({
     command: rule.command,
     args: rule.args || "",
@@ -308,11 +389,9 @@ export function parsePlainText(text) {
   });
 
   if (!out.available) {
-    // /space, /physics and /alien are not built yet. Say so; run nothing.
+    // Only "who are you?" is still an honest local reply, not a real job.
     out.route = "reply";
-    const label = rule.id === "alien"
-      ? "A full answer about me"
-      : (String(rule.id || "").replace(/^topic-/, "").replace(/^./, c => c.toUpperCase()) || "That topic");
+    const label = rule.id === "alien" ? "A full answer about me" : "That topic";
     out.note = `${label} is not built into this terminal yet — that is coming next. Source: ${rule.source}. ${rule.reply}`;
   }
   return out;

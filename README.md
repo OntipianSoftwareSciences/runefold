@@ -107,10 +107,13 @@ Runefold hears short plain-text questions locally and offline. Ask one of these:
 - "what did you learn last time?" — this session's learning summary
 - "what have you learned?" — the same summary, another way to ask
 
-**Space — coming next**
+**Space and physics**
 
-- "tell me about black holes" — I can name the topic, but there is no live space
-  reference built here yet, so I cannot verify the details. Coming next.
+- "tell me about black holes" — a plain-words answer with key numbers and a named source
+- "what is gravity?" — gravity explained locally, with Wikipedia when online
+- "tell me about Mars" — Mars facts with real numbers and a named source
+- "what is today's space picture?" — NASA APOD title, date and image URL; no image is downloaded
+- "are any asteroids coming near Earth?" — NASA near-Earth asteroids for the next 7 days
 
 **About me and everyday work**
 
@@ -901,17 +904,20 @@ request is refused kindly before any job runs.
 | `show me how a worm learns a new smell faster` | fresh vs transferred worm (7 rounds vs 3) | no |
 | `friends`, `fly meets worm`, `are the fly and worm friends?` | runs the ASCII friendship world | no |
 | `train the friends`, `make them friends faster` | compares a pair that trained first | no |
-| `black hole`, `tell me about mars`, `what is gravity` | names the topic, says "coming next", runs nothing | no |
-| `alien`, `who are you`, `tell me about yourself` | short local answer about me, then "coming next" | no |
+| `black hole`, `tell me about mars`, `what is gravity` | local plain-words answer, Wikipedia when online | no |
+| `what is today's space picture?` | NASA APOD title, date and image URL — no download | no |
+| `are any asteroids coming near Earth?` | NASA near-Earth asteroids for the next 7 days | no |
+| `alien`, `who are you`, `tell me about yourself` | short local answer about me | no |
 | `kind`, `be kind`, `what are your rules` | prints the kindness charter and values | no |
 | `brain`, `show me the brain`, `what did the brain learn?` | runs the pink + puppy -> happy demo | no |
 | `help`, `what can you do` | prints the grouped list of questions | no |
 | `session`, `what did you learn`, `what did you learn last time?` | shows this session's learning summary | no |
 | `hi`, `how are you`, code questions | normal chat → Ollama | yes |
 
-Space topics and the "who are you" answer are **not fully built yet**.
-Runefold says plainly "that is coming next", names the source as local
-knowledge, and runs nothing. Nothing is faked.
+Space and physics topics now run a real local answer. Wikipedia and NASA are
+best-effort extras; when they cannot be reached, Runefold names the local
+source and says so. The "who are you" answer is still a short local answer,
+not a full identity system. Nothing is faked.
 
 When Runefold is unsure it asks one question instead of guessing:
 
@@ -987,3 +993,98 @@ Files: `core/plaintext.js` (new — the small local matcher and kindness gate),
 `index.js` (one import, plain-text help lines, one extra branch in the input
 loop; no Ollama, config, chatbot or login changes), `test.js` (15 new plain-text
 tests; the original 45 untouched — 60 tests total), this README.
+
+## Physics + Space — Wikipedia + NASA
+
+Runefold now knows a small, hand-written base of **23 physics and space topics**.
+It lives in code (`core/space.js`), works with no internet, and uses the same
+plain-text questions and the same `checkKindness()` gate as the fly, worm,
+friends and brain jobs. It is **not** a second knowledge or ethics system.
+
+The local base covers: gravity, orbits, black holes, stars, planets, moons,
+the Sun, light and light-years, relativity, quantum physics, the Big Bang,
+galaxies, nebulae, asteroids, comets, the International Space Station,
+rockets, the Solar System, Mars, Jupiter, Saturn, Earth and the Moon.
+Every topic has a plain-words summary, key numbers, why it matters, and a
+source named in plain words (for example, "NASA Astrophysics — black holes,
+and ESO Galactic Centre team"). Runefold does not guess numbers it does not
+keep: it says "I don't know that number".
+
+Ask like this — no slash needed:
+
+- "tell me about black holes"
+- "what is gravity?"
+- "tell me about Mars"
+- "what is today's space picture?"
+- "are any asteroids coming near Earth?"
+
+An exact topic name or one of those questions is a high-confidence match.
+A bare word like `space` is too vague, so Runefold asks one question instead
+of guessing. Ordinary chat still goes to Ollama exactly as before; space and
+physics answers do **not** need Ollama.
+
+**How Wikipedia works.** For a topic Runefold asks the Wikipedia REST summary
+endpoint (`https://en.wikipedia.org/api/rest_v1/page/summary/<topic>`). No key
+is needed. The short summary and page URL are added below the local answer and
+cached in `~/.runefold/space-cache.json`, so the same topic is not fetched
+again in one session. If Wikipedia cannot be reached, Runefold prints exactly:
+"I couldn't reach Wikipedia, so here's what I know locally." The local answer
+still appears.
+
+**How NASA works.** NASA's API uses `DEMO_KEY` by default. If Scarlet has put
+her own `NASA_API_KEY` in `config.json` herself, Runefold uses that instead —
+OpenCode does not create, sign in to, or paste a key. The astronomy picture
+job prints the APOD title, date and image URL only; it never downloads the
+image. The asteroid job prints near-Earth asteroids for the next 7 days in
+plain words, with estimated size and closest distance. Both live results are
+cached in the same `space-cache.json`. If NASA cannot be reached, Runefold
+says so honestly and does not fail the session.
+
+**Honest limits.** This is a local base of 23 topics, not an encyclopedia and
+not a language model. It fetches Wikipedia / NASA only when online, falls back
+to the local base when offline, and says "I don't know" instead of inventing a
+number. A harmful space or physics request is refused by the existing kindness
+gate before any answer runs.
+
+**Full terminal session (real output observed).** These two questions were
+piped into `node index.js` in order, then exit. ANSI colour codes were
+stripped. In that run Wikipedia had already been fetched once and was served
+from the store's cache; NASA could not be reached with `DEMO_KEY`, so the
+honest offline note is shown. No Ollama was running and no image was downloaded.
+
+```
+
+╭────────────────────────────────────────────────────╮
+│  R U N E F O L D   A I   //   ADAPTIVE CORE 0.6.1  │
+│  MEMORY  ◈  RETRIEVAL  ◈  PLAN  ◈  CRITIC  ◈  TOOLS  │
+╰────────────────────────────────────────────────────╯
+Local-first terminal assistant • try asking: show me the fly • show me the worm • are the fly and worm friends? • what can you do?
+Memory store: /home/scarletborrowedthis/.runefold
+
+🫧 runefold ❯ (I heard that as: tell me about black holes — tell me if I got it wrong)
+(I heard that as: what is today's space picture? — tell me if I got it wrong)
+🫧 runefold ❯ 🫧 runefold ❯ 
+Black holes — plain-words answer
+In plain words: A black hole is a place where gravity is so strong that nothing nearby can escape once it passes the point of no return, called the event horizon. It is not a cosmic vacuum cleaner; far away it pulls like any other mass.
+Key numbers:
+  - Point of no return for a Sun-mass black hole: about 3 kilometres across in radius
+  - Black hole at the centre of the Milky Way: about 4 million times the mass of the Sun
+Why it matters: Black holes test gravity at its most extreme and help explain how galaxies grow.
+Source: NASA Astrophysics — black holes, and ESO Galactic Centre team
+Numbers I don't keep: I don't know that number — I only keep the numbers listed above.
+
+Wikipedia (cached from earlier in the store): A black hole is an astronomical body so compact that its gravity prevents anything, including light, from escaping. Albert Einstein's theory of general relativity, which describes gravitation as the curvature of spacetime, predicts that any sufficiently compact mass will form a black hole. The boundary of no escape is called the event horizon. In general relativity, crossing a black hole's event horizon traps an object inside but produces no locally detectable change. General relativity also predicts that every black hole should have a central singularity, where the curvature of spacetime is infinite.
+Wikipedia page: https://en.wikipedia.org/wiki/Black_hole
+
+
+I couldn't reach NASA, so I have no live result to show right now. I did not download anything.
+Source: NASA APOD uses DEMO_KEY by default; Scarlet adds her own NASA_API_KEY to config.json herself. Nothing was downloaded.
+
+
+This session I learned nothing new, I got better at no new skills, I rested no brains, and I had no questions I couldn't answer.
+Runefold session closed. Your saved learning remains on this computer.
+```
+
+Files: `core/space.js` (new — 23 local topics, Wikipedia/NASA helpers, cache
+and kindness gate), `core/plaintext.js` (the plain-text questions), `index.js`
+(small terminal wiring only), `test.js` (8 new tests, 74 total), this README.

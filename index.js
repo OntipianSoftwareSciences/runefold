@@ -12,6 +12,7 @@ import { demoWorm, demoWormTransfer, wormDemoSummary } from "./core/worm.js";
 import { demoFriends } from "./core/friends.js";
 import { startSession, trackSessionEvent, closeSession, getSessionSummary, sessionSummaryText } from "./core/autosave.js";
 import { parsePlainText, heardAs, plainTextMeaning } from "./core/plaintext.js";
+import { getSpaceTopic, getPhysicsTopic, getApod, getAsteroids } from "./core/space.js";
 
 const CONFIG_PATH = new URL("./config.json", import.meta.url);
 let config;
@@ -64,9 +65,12 @@ ${magenta}SESSION${reset}
   "what did you learn last time?"          This session's learning summary
   "what have you learned?"                 The same summary, another way to ask
 
-${magenta}SPACE — coming next${reset}
-  "tell me about black holes"              I can name the topic, but there is no live
-                                           space reference built here yet — coming next
+${magenta}SPACE + PHYSICS — live when online, local offline${reset}
+  "tell me about black holes"              Plain-words answer, key numbers, named source
+  "what is gravity?"                       Gravity explained locally, Wikipedia when online
+  "tell me about Mars"                     Mars facts with real numbers and a named source
+  "what is today's space picture?"         NASA APOD title, date and image URL — no download
+  "are any asteroids coming near Earth?"   NASA near-Earth asteroids for the next 7 days
 
 ${magenta}EVERYDAY WORK${reset}
 You can ask me to turn auto-learning on or off, show your status, or close
@@ -97,6 +101,14 @@ function printFriendsGrids(grids) {
     console.log(`\n${dim}${name} grid:${reset}`);
     console.log(grids[name]);
   }
+}
+
+// Live Wikipedia / NASA lookups are best-effort promises. With piped input,
+// readline can deliver "/exit" before a fetch settles, so shutdown waits for
+// these answers. Nothing else in the terminal input loop is changed.
+let pendingSpace = Promise.resolve();
+function queueSpaceAnswer(promise) {
+  pendingSpace = pendingSpace.then(async () => console.log(`\n${await promise}\n`));
 }
 
 async function command(line) {
@@ -322,6 +334,25 @@ async function command(line) {
     case "/autolearn": if (arg === "on") config.autoLearn = true; else if (arg === "off") config.autoLearn = false; else { console.log("Say on or off to turn auto-learning on or off."); return true; } fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2)); console.log(`Auto-learn ${config.autoLearn ? "ON" : "OFF"}.`); return true;
     case "/status": status(); return true;
     case "/session": console.log(sessionSummaryText(getSessionSummary())); return true;
+    // Space / physics answers are local first. They use the SAME kindness
+    // gate inside core/space.js and need no Ollama. Wikipedia/NASA are added
+    // only when reachable; an offline run still prints a real local answer.
+    case "/space": {
+      queueSpaceAnswer(getSpaceTopic(arg || "solar-system"));
+      return true;
+    }
+    case "/physics": {
+      queueSpaceAnswer(getPhysicsTopic(arg || "gravity"));
+      return true;
+    }
+    case "/apod": {
+      queueSpaceAnswer(getApod());
+      return true;
+    }
+    case "/asteroids": {
+      queueSpaceAnswer(getAsteroids());
+      return true;
+    }
     case "/exit": case "/quit": rl.close(); return false;
     default: return null;
   }
@@ -340,6 +371,7 @@ let shuttingDown = false;
 async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
+  try { await pendingSpace; } catch { /* still close cleanly */ }
   try { await closeSession({ quiet: true }); } catch { /* still close cleanly */ }
   console.log(`\n${cyan}${sessionSummaryText(getSessionSummary())}${reset}`);
   console.log(`${cyan}Runefold session closed. Your saved learning remains on this computer.${reset}`);
@@ -372,8 +404,8 @@ rl.on("line", async line => {
         console.log(`\n${yellow}${parsed.question}${reset}\n`);
         trackSessionEvent({ type: "question", text: input });
       } else if (parsed.route === "reply") {
-        // The topic maps to a command not built yet (/space, /physics,
-        // /alien). Say so, name the local source, run nothing, call no Ollama.
+        // The only local reply without a job is "who are you?" (/alien).
+        // Space/physics now run real local jobs; nothing here calls Ollama.
         console.log(`\n${dim}${parsed.note}${reset}\n`);
       } else if (parsed.route === "command") {
         // High / medium match: run the EXISTING command and say what we heard.

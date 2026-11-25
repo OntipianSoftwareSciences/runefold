@@ -16,6 +16,17 @@ import { dataLocation } from "./core/store.js";
 import { startSession, trackSessionEvent, autosave, closeSession, getSessionSummary, loadLastSessionSummary } from "./core/autosave.js";
 import { FRIENDS_JOB, createFriendsWorld, stepFriendsWorld, runFriendsWorld, demoFriends, renderFriendsWorld } from "./core/friends.js";
 import { parsePlainText, heardAs, plainTextMeaning } from "./core/plaintext.js";
+import { SPACE_TOPICS, getSpaceTopic, getPhysicsTopic, getApod, getAsteroids, searchSpace } from "./core/space.js";
+
+// Tests must pass offline and must never depend on a live API. Child terminal
+// runs inherit this, so the honest local fallback is what gets asserted.
+process.env.RUNEFOLD_OFFLINE = "1";
+
+// A previous live run may have cached a Wikipedia / NASA result in the
+// memory store. Tests accept the cached live text OR the exact offline note.
+const WIKI_OR_OFFLINE = /Wikipedia live:|Wikipedia \(cached from earlier in the store\)|I couldn't reach Wikipedia, so here's what I know locally\./;
+const NASA_APOD_OR_OFFLINE = /Image URL:|I couldn't reach NASA/;
+const NASA_ASTEROIDS_OR_OFFLINE = /Near-Earth asteroids — NASA NeoWs|I couldn't reach NASA/;
 
 function tmpDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "runefold-test-"));
@@ -722,19 +733,24 @@ test("plain text: worm, friends and friends-train phrases reuse the existing com
   }
 });
 
-test("plain text: space and physics topics name their command and honestly say it is coming next", () => {
+test("plain text: space and physics questions run real local jobs, and bare 'space' asks one question", () => {
   const r = parsePlainText("black hole");
   assert.equal(r.command, "/space");
-  assert.equal(r.args, "black hole");
-  assert.equal(r.route, "reply", "/space is not built, so no command may run");
-  assert.match(r.note, /coming next/);
-  assert.match(r.note, /source: local knowledge/i, "the source must be named");
+  assert.equal(r.args, "black-hole");
+  assert.equal(r.route, "command", "space is built now, so the job may run");
+  assert.equal(r.confidence, "high", "an exact topic name is high confidence");
   const mars = parsePlainText("tell me about mars");
   assert.equal(mars.command, "/space");
   assert.equal(mars.args, "mars");
+  assert.equal(mars.confidence, "high");
   const gravity = parsePlainText("what is gravity");
   assert.equal(gravity.command, "/physics");
   assert.equal(gravity.args, "gravity");
+  assert.equal(gravity.confidence, "high");
+  const vague = parsePlainText("space");
+  assert.equal(vague.route, "question");
+  assert.equal(vague.command, null);
+  assert.match(vague.question, /which space question/i);
 });
 
 test("plain text: 'who are you' maps to /alien with an honest local fallback", () => {
@@ -828,16 +844,20 @@ test("plain text: 'fly mushroom body' runs the real mushroom-body demo in the te
   assert.match(out, /smell-a -> approach: 0\/20 before training, 20\/20 after/);
 });
 
-test("plain text: black holes print an honest coming-next note in the terminal", () => {
+test("plain text: black holes print a real local answer in the terminal", () => {
   const out = execFileSync(process.execPath, ["index.js"], {
     cwd: path.dirname(fileURLToPath(import.meta.url)),
     input: "tell me about black holes\n/exit\n",
     encoding: "utf8",
   });
-  assert.match(out, /Black hole is not built into this terminal yet — that is coming next/);
-  assert.match(out, /source: local knowledge/i);
-  assert.doesNotMatch(out, /I heard that as/);
-  assert.doesNotMatch(out, /\/space/, "the coming-next note must not show an internal command");
+  assert.match(out, /Black holes — plain-words answer/);
+  assert.match(out, /about 4 million times the mass of the Sun/);
+  assert.match(out, /Source: NASA Astrophysics/);
+  assert.match(out, WIKI_OR_OFFLINE);
+  const heard = out.match(/\(I heard that as: ([^)]*)\)/);
+  assert.ok(heard, "the terminal must print what it heard");
+  assert.equal(heard[1], "tell me about black holes — tell me if I got it wrong");
+  assert.doesNotMatch(heard[1], /\//, "no slash command may appear in the note");
 });
 
 test("plain text: an unclear terminal line asks a question and runs no command", () => {
@@ -898,7 +918,10 @@ test("plain words: help lists specific questions by topic, no slash commands in 
     assert.match(out, new RegExp(topic), `help should group questions by ${topic}`);
   }
   assert.match(out, /Old \/commands still work if you type them, but you don't need them\./);
-  assert.match(out, /coming next/i, "space must be honest that it is not built yet");
+  assert.match(out, /SPACE \+ PHYSICS/, "help must group real space and physics questions");
+  assert.match(out, /what is today's space picture\?/);
+  assert.match(out, /are any asteroids coming near Earth\?/);
+  assert.doesNotMatch(out, /coming next/i, "space is built now, so help must not call it coming next");
   assert.match(out, /try asking: show me the fly/, "the startup banner must suggest plain words");
 });
 
@@ -962,7 +985,7 @@ test("plain words: every question suggested in help runs a real local demo", () 
   assert.match(out, /fresh brain: smell-c -> approach reached 80% after 7 training round\(s\)/);
   assert.match(out, /fresh worm: smell-c -> approach reached 80% after 7 training round\(s\)/);
   assert.match(out, /After 12 training rounds: happy fired 20\/20 trials/);
-  assert.match(out, /coming next/i);
+  assert.match(out, /Black holes — plain-words answer/);
   const heardLines = out.match(/\(I heard that as: [^)]*\)/g) || [];
   assert.ok(heardLines.length >= 4, "each matched question prints what it heard");
   for (const line of heardLines) assert.doesNotMatch(line, /\//, `no slash in: ${line}`);
@@ -981,4 +1004,107 @@ test("plain words: old /commands still run their real demos, with no heard-note"
   assert.match(out, /Runefold is kind to every brain/);
   assert.match(out, /This session I learned/);
   assert.doesNotMatch(out, /I heard that as/, "slash commands must not print the plain-text note");
+});
+
+// --- Physics + Space — Wikipedia + NASA ---
+
+test("space: the local knowledge base covers 20+ required topics honestly", () => {
+  assert.ok(SPACE_TOPICS.length >= 20, `expected 20+ topics, got ${SPACE_TOPICS.length}`);
+  const required = [
+    "gravity", "orbits", "black-hole", "stars", "planets", "moons", "sun",
+    "light-year", "relativity", "quantum", "big-bang", "galaxies", "nebulae",
+    "asteroids", "comets", "iss", "rockets", "solar-system", "mars", "jupiter",
+    "saturn", "earth", "the-moon",
+  ];
+  for (const key of required) {
+    const topic = SPACE_TOPICS.find(t => t.key === key);
+    assert.ok(topic, `missing local topic: ${key}`);
+    assert.ok(topic.summary && topic.summary.length > 20, `${key} needs a plain-words summary`);
+    assert.ok(Array.isArray(topic.numbers) && topic.numbers.length > 0, `${key} needs key numbers`);
+    assert.ok(topic.why && topic.why.length > 10, `${key} needs why it matters`);
+    assert.ok(topic.source && topic.source.length > 5, `${key} must name its source`);
+  }
+});
+
+test("space: getSpaceTopic('black hole') gives plain words, real numbers, a source and no guessed number", async () => {
+  const out = await getSpaceTopic("black hole");
+  assert.match(out, /Black holes — plain-words answer/);
+  assert.match(out, /In plain words: A black hole is a place where gravity is so strong/);
+  assert.match(out, /Key numbers:/);
+  assert.match(out, /about 3 kilometres across in radius/);
+  assert.match(out, /about 4 million times the mass of the Sun/);
+  assert.match(out, /Why it matters:/);
+  assert.match(out, /Source: NASA Astrophysics/);
+  assert.match(out, /I don't know that number/);
+  // Tests force offline mode, but an earlier live result may be cached.
+  assert.match(out, WIKI_OR_OFFLINE);
+});
+
+test("space: getPhysicsTopic('gravity') uses the same knowledge objects, not a second system", async () => {
+  const out = await getPhysicsTopic("gravity");
+  assert.match(out, /Gravity — plain-words answer/);
+  assert.match(out, /about 9\.8 metres per second squared/);
+  assert.match(out, /Source: NASA Earth Observatory/);
+  assert.match(out, WIKI_OR_OFFLINE);
+});
+
+test("space: searchSpace finds a topic by plain keyword", () => {
+  const hits = searchSpace("red planet");
+  assert.ok(hits.some(t => t.key === "mars"), "searchSpace('red planet') should find Mars");
+  assert.deepEqual(searchSpace(""), []);
+});
+
+test("space: APOD returns a title and image URL, or an honest offline note, and never downloads", async () => {
+  const out = await getApod();
+  assert.match(out, NASA_APOD_OR_OFFLINE);
+  assert.match(out, /I did not download|Nothing was downloaded|I only print the URL/);
+  assert.match(out, /NASA APOD/);
+  assert.doesNotMatch(out, /Downloading|saved image|writing image/i);
+});
+
+test("space: near-Earth asteroids return a list or an honest offline note, and never fail offline", async () => {
+  const out = await getAsteroids();
+  assert.match(out, NASA_ASTEROIDS_OR_OFFLINE);
+  assert.match(out, /NASA NeoWs/);
+  assert.doesNotMatch(out, /Runefold error/i);
+});
+
+test("space: a harmful space request is refused kindly by the existing kindness gate", async () => {
+  const direct = await getSpaceTopic("simulate pain in a black hole");
+  assert.match(direct, /Kind refusal/);
+  assert.doesNotMatch(direct, /Black holes — plain-words answer/, "no answer may run after a refusal");
+
+  const out = execFileSync(process.execPath, ["index.js"], {
+    cwd: path.dirname(fileURLToPath(import.meta.url)),
+    input: "simulate pain in a black hole\n/exit\n",
+    encoding: "utf8",
+  });
+  assert.match(out, /Kind refusal/);
+  assert.doesNotMatch(out, /Black holes — plain-words answer/);
+});
+
+test("space: all four requested questions run in the terminal with no slash in the heard-note", () => {
+  const out = execFileSync(process.execPath, ["index.js"], {
+    cwd: path.dirname(fileURLToPath(import.meta.url)),
+    input: [
+      "tell me about black holes",
+      "what is gravity?",
+      "tell me about Mars",
+      "what is today's space picture?",
+      "are any asteroids coming near Earth?",
+      "/exit\n",
+    ].join("\n"),
+    encoding: "utf8",
+  });
+  for (const expected of [
+    /Black holes — plain-words answer/,
+    /Gravity — plain-words answer/,
+    /Mars — plain-words answer/,
+    /Today's space picture — NASA APOD|I couldn't reach NASA/,
+    /Near-Earth asteroids — NASA NeoWs|I couldn't reach NASA/,
+    WIKI_OR_OFFLINE,
+  ]) assert.match(out, expected);
+  const heard = out.match(/\(I heard that as: ([^)]*)\)/g) || [];
+  assert.equal(heard.length, 5, "each plain question should print what it heard");
+  for (const line of heard) assert.doesNotMatch(line, /\//, `no slash in: ${line}`);
 });
