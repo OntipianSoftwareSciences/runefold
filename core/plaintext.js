@@ -25,7 +25,9 @@
 //   "tell me about black holes", "what is gravity?", the NASA picture and the
 //   near-Earth asteroid list all map onto local jobs in core/space.js. The
 //   answers work offline; Wikipedia/NASA are added only when reachable.
-//   "who are you?" is still an honest local answer, not a built alien job.
+//   "who are you?" and the exact alien questions now run the real /alien job
+//   in index.js. BORK, the alien persona, still uses the same kindness gate
+//   and the same space answers; it is a voice, not a second system.
 
 import { checkKindness } from "./kindness.js";
 import { SPACE_TOPICS, PHYSICS_KEYS } from "./space.js";
@@ -43,14 +45,59 @@ const SPACE_QUESTION =
   "Which space question? Try: tell me about black holes, what is gravity?, " +
   "what is today's space picture?, or are any asteroids coming near Earth?";
 
-// "Who are you?" is answered locally, and says honestly that a full answer
-// about Runefold's identity is still coming next.
-const COMING_NEXT_ALIEN =
-  "Local knowledge — I'm Runefold, a local-first terminal assistant with a " +
-  "tiny spiking-brain experiment. Ask 'what can you do?' to see what I can do now.";
+// An exact alien phrase runs a real job. A loose "like an alien" with no
+// topic asks ONE question; it never guesses a topic.
+const ALIEN_QUESTION =
+  "Which alien question? Try: explain gravity like an alien, or tell me about " +
+  "black holes like an alien would.";
 
 // The four questions Scarlet asked for, plus the NASA jobs. These are exact
 // phrases, so they are high-confidence and do not depend on a broad keyword.
+// Exact BORK questions are high-confidence and run /alien. A vague
+// "like an alien" asks one question instead of guessing a topic.
+const ALIEN_RULES = [
+  {
+    id: "alien-identity",
+    phrases: [
+      "bork", "alien", "aliens", "who are you", "what are you",
+      "tell me about yourself", "introduce yourself", "your name",
+    ],
+    pattern: /\bbork\b|\bwho are you\b|\babout yourself\b|\bwhat are you\b/i,
+    command: "/alien", args: "", confidence: "high",
+    source: "core/alien.js — BORK persona, same kindness gate",
+  },
+  {
+    id: "alien-gravity",
+    phrases: [
+      "explain gravity like an alien", "explain gravity like an alien would",
+      "tell me about gravity like an alien", "tell me about gravity like an alien would",
+    ],
+    pattern: null,
+    command: "/alien", args: "gravity", confidence: "high",
+    source: "core/alien.js + core/space.js",
+  },
+  {
+    id: "alien-black-hole",
+    phrases: [
+      "tell me about black holes like an alien would",
+      "tell me about black holes like an alien",
+      "explain black holes like an alien",
+      "explain black holes like an alien would",
+    ],
+    pattern: null,
+    command: "/alien", args: "black-hole", confidence: "high",
+    source: "core/alien.js + core/space.js",
+  },
+  {
+    id: "alien-too-vague",
+    phrases: ["like an alien", "alien explanation", "explain like an alien", "tell me like an alien"],
+    pattern: /\b(like an alien|alien explanation|alien take)\b/i,
+    command: null, args: "", confidence: "low",
+    question: ALIEN_QUESTION,
+    source: "plain-text matcher",
+  },
+];
+
 const SPACE_QUESTION_RULES = [
   {
     id: "space-picture",
@@ -167,6 +214,7 @@ const RULES = [
     pattern: null,
     command: "/fly", args: "mushroom-body", confidence: "high",
   },
+  ...ALIEN_RULES,
   ...SPACE_QUESTION_RULES,
   {
     id: "friends",
@@ -188,19 +236,6 @@ const RULES = [
     command: "/fly", args: "mushroom-body", confidence: "medium",
   },
   ...TOPIC_RULES,
-  {
-    id: "alien",
-    phrases: [
-      "alien", "aliens", "who are you", "what are you",
-      "tell me about yourself", "introduce yourself", "your name",
-    ],
-    pattern: /\balien(s)?\b|\bwho are you\b|\babout yourself\b|\bwhat are you\b/i,
-    command: "/alien", args: "", confidence: "medium",
-    // /alien is not in index.js yet. Answer locally and say so.
-    available: false,
-    source: "local knowledge",
-    reply: COMING_NEXT_ALIEN,
-  },
   {
     id: "kind",
     // Bare "kind" is only an EXACT phrase, on purpose: "kind of" in normal
@@ -320,6 +355,9 @@ const PLAIN_MEANINGS = {
   "/space black-hole": "tell me about black holes",
   "/physics gravity": "what is gravity?",
   "/space mars": "tell me about Mars",
+  "/alien": "who are you?",
+  "/alien gravity": "explain gravity like an alien",
+  "/alien black-hole": "tell me about black holes like an alien would",
 };
 
 export function plainTextMeaning(parsed) {
@@ -328,6 +366,7 @@ export function plainTextMeaning(parsed) {
   const topic = String(parsed.args || "").replace(/-/g, " ");
   if (parsed.command === "/space" && topic) return `tell me about ${topic}`;
   if (parsed.command === "/physics" && topic) return `what is ${topic}?`;
+  if (parsed.command === "/alien" && topic) return `explain ${topic.replace(/-/g, " ")} like an alien`;
   return parsed.args || "what you asked";
 }
 
@@ -388,11 +427,5 @@ export function parsePlainText(text) {
     available: rule.available !== false,
   });
 
-  if (!out.available) {
-    // Only "who are you?" is still an honest local reply, not a real job.
-    out.route = "reply";
-    const label = rule.id === "alien" ? "A full answer about me" : "That topic";
-    out.note = `${label} is not built into this terminal yet — that is coming next. Source: ${rule.source}. ${rule.reply}`;
-  }
   return out;
 }

@@ -1088,3 +1088,83 @@ Runefold session closed. Your saved learning remains on this computer.
 Files: `core/space.js` (new — 23 local topics, Wikipedia/NASA helpers, cache
 and kindness gate), `core/plaintext.js` (the plain-text questions), `index.js`
 (small terminal wiring only), `test.js` (8 new tests, 74 total), this README.
+
+## Smart Alien — BORK
+
+Runefold now starts with **BORK**, a smart, silly green alien dog who came to
+Earth to learn WITH Scarlet. BORK has green fur, a pink tongue, and a nose that
+is its mouth. It is kind, playful and curious: "On my world we do it like this;
+on Earth you do it like that; here's why yours works." When Scarlet teaches it
+something, it says: "I just learned this from you, let me fold it into my
+brain."
+
+BORK is honest about what it is: a **story persona** for a simulated brain in
+JavaScript, not a real alien and not a living animal. It does not invent alien
+words or fake translations, and it is never scary, cold, harmful or fear-based.
+It respects the names and pronouns people ask for. Runefold's existing kindness
+charter and core values still apply — BORK does not get a second ethics system
+or a way around `checkKindness()`.
+
+BORK is a **voice on top of the real jobs**, not a replacement for them. Its
+gravity and black-hole answers reuse `core/space.js`, so the real summary, key
+numbers, "I don't know that number" and named source are still printed. Brain,
+fly, worm, friends, space, physics and kindness each get one short BORK line
+above the unchanged demo output and numbers. No Ollama call, config change,
+chatbot change or login change was added.
+
+Ask in plain words — no slash needed:
+
+- "who are you?"
+- "tell me about yourself"
+- "explain gravity like an alien"
+- "tell me about black holes like an alien would"
+
+Those exact questions are high-confidence. A vague "tell me like an alien"
+asks one question instead of guessing. The terminal's heard-note shows the
+plain question, never an internal `/command`. Help now includes:
+"Try asking: who are you?, explain gravity like an alien, tell me about black
+holes like an alien would".
+
+**Real terminal output observed.** `explain gravity like an alien` was piped
+into `node index.js`, then exit. `RUNEFOLD_OFFLINE=1` was set so the result is
+the local answer rather than a live Wikipedia fetch; ANSI colour codes were
+stripped. No Ollama was running.
+
+```
+BORK here — a smart, silly green alien dog learning Earth with Scarlet.
+On my world we do it like this; on Earth you do it like that — here's why yours works.
+In code I am a simulated brain learning in a story, not a real alien and not a living animal.
+
+╭────────────────────────────────────────────────────╮
+│  R U N E F O L D   A I   //   ADAPTIVE CORE 0.6.1  │
+│  MEMORY  ◈  RETRIEVAL  ◈  PLAN  ◈  CRITIC  ◈  TOOLS  │
+╰────────────────────────────────────────────────────╯
+Local-first terminal assistant • try asking: show me the fly • show me the worm • are the fly and worm friends? • what can you do?
+Memory store: /home/scarletborrowedthis/.runefold
+
+🫧 runefold ❯ (I heard that as: explain gravity like an alien — tell me if I got it wrong)
+🫧 runefold ❯ 
+BORK's alien take: Gravity is like being hugged by a planet; Earth's pull is about 9.8 metres per second squared.
+I just learned this from you, let me fold it into my brain.
+Real Earth name: Gravity.
+Gravity — plain-words answer
+In plain words: Gravity is the pull between anything that has mass. It keeps your feet on the ground and the Moon in its path around Earth.
+Key numbers:
+  - Pull at Earth's surface: about 9.8 metres per second squared
+  - Pull at the Moon's surface: about 1.6 metres per second squared
+Why it matters: It sets the shape of orbits, the height of tides, and whether a body can hold on to an atmosphere.
+Source: NASA Earth Observatory and NASA Moon facts
+Numbers I don't keep: I don't know that number — I only keep the numbers listed above.
+
+I couldn't reach Wikipedia, so here's what I know locally.
+
+
+This session I learned nothing new, I got better at no new skills, I rested no brains, and I had no questions I couldn't answer.
+Runefold session closed. Your saved learning remains on this computer.
+```
+
+Files: `core/alien.js` (new — BORK's identity, voice guide, example lines and
+boundaries), `core/plaintext.js` (exact alien questions, low-confidence alien
+question, no old "coming next" fallback), `index.js` (greeting, `/alien`, help
+lines and one added line above each real job), `test.js` (9 new alien tests,
+83 total), this README. Nothing was pushed to GitHub.

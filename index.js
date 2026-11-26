@@ -13,6 +13,7 @@ import { demoFriends } from "./core/friends.js";
 import { startSession, trackSessionEvent, closeSession, getSessionSummary, sessionSummaryText } from "./core/autosave.js";
 import { parsePlainText, heardAs, plainTextMeaning } from "./core/plaintext.js";
 import { getSpaceTopic, getPhysicsTopic, getApod, getAsteroids } from "./core/space.js";
+import { alienGreeting, alienExplain, alienTakeOn } from "./core/alien.js";
 
 const CONFIG_PATH = new URL("./config.json", import.meta.url);
 let config;
@@ -35,7 +36,13 @@ You can also just type in plain words. Here are specific questions to try:
 
 ${magenta}START HERE${reset}
   "what can you do?"                       What Runefold can do right now
-  "who are you?"                           A short local answer about me
+  "who are you?"                           Meet BORK, the smart alien dog
+Try asking: who are you?, explain gravity like an alien, tell me about black holes like an alien would
+
+${magenta}SMART ALIEN — BORK${reset}
+  "explain gravity like an alien"          BORK's take, then the real numbers and source
+  "tell me about black holes like an alien would"   Same, with NASA's black-hole facts
+  "who are you?"                           Honest local answer: a story persona, not a real alien
 
 ${magenta}FLY${reset}
   "show me the fly"                        List the fly modules and their jobs
@@ -110,6 +117,11 @@ let pendingSpace = Promise.resolve();
 function queueSpaceAnswer(promise) {
   pendingSpace = pendingSpace.then(async () => console.log(`\n${await promise}\n`));
 }
+// One short BORK line sits ABOVE the real job. It never replaces the demo,
+// its numbers, the source lines, or the existing kindness gate.
+function alienLine(command) {
+  console.log(`${dim}${alienTakeOn(command)}${reset}`);
+}
 
 async function command(line) {
   const [cmd, ...rest] = line.trim().split(" ");
@@ -173,6 +185,7 @@ async function command(line) {
       return true;
     }
     case "/brain": {
+      alienLine("brain");
       // /brain <name> runs a SAVED brain's demo; plain /brain is the v0.1 demo.
       if (arg) {
         try {
@@ -200,6 +213,7 @@ async function command(line) {
       return true;
     }
     case "/fly": {
+      alienLine("fly");
       // /fly lists templates; /fly <name> runs that template's demo.
       // v0.3: the list now includes the worm; fly demos are unchanged.
       if (!arg) {
@@ -235,6 +249,7 @@ async function command(line) {
       return true;
     }
     case "/worm": {
+      alienLine("worm");
       // v0.3: the whole toy worm — learning numbers and a grid-world crawl.
       // No Ollama needed. The build inside demoWorm() goes through the
       // existing kindness gate in core/fly.js -> core/kindness.js.
@@ -246,6 +261,7 @@ async function command(line) {
       return true;
     }
     case "/friends": {
+      alienLine("friends");
       // Small, safe addition: only this command runs the new world.
       if (arg && arg !== "train") { console.log("Ask: are the fly and worm friends?, or make them friends faster."); return true; }
       if (arg === "train") {
@@ -283,6 +299,7 @@ async function command(line) {
       return true;
     }
     case "/kind": {
+      alienLine("kind");
       const parts = arg.split(/\s+/).filter(Boolean);
       if (parts[0] === "rest") {
         if (!parts[1]) { console.log("Name a saved brain to thank and rest it, for example: my-first-fly-brain"); return true; }
@@ -337,11 +354,24 @@ async function command(line) {
     // Space / physics answers are local first. They use the SAME kindness
     // gate inside core/space.js and need no Ollama. Wikipedia/NASA are added
     // only when reachable; an offline run still prints a real local answer.
+    case "/alien": {
+      // BORK's identity and explanations are local. Exact alien questions in
+      // core/plaintext.js reach here; the same existing kindness gate applies.
+      const identity = /\b(who are you|what are you|about yourself|introduce yourself|your name|bork)\b/i;
+      if (!arg || identity.test(arg)) {
+        console.log(`\n${alienTakeOn(arg || "who are you")}\n`);
+        return true;
+      }
+      queueSpaceAnswer(alienExplain(arg));
+      return true;
+    }
     case "/space": {
+      alienLine("space");
       queueSpaceAnswer(getSpaceTopic(arg || "solar-system"));
       return true;
     }
     case "/physics": {
+      alienLine("physics");
       queueSpaceAnswer(getPhysicsTopic(arg || "gravity"));
       return true;
     }
@@ -362,6 +392,7 @@ if (process.argv.includes("--doctor")) {
   console.log("Node:", process.version); console.log("Config:", config); console.log("Memory:", dataLocation()); console.log("Paths:", paths());
   console.log("Runefold doctor complete."); process.exit(0);
 }
+console.log(alienGreeting());
 banner();
 const started = startSession();
 if (started.welcomeLine) console.log(started.welcomeLine);

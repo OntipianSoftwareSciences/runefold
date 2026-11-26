@@ -17,6 +17,7 @@ import { startSession, trackSessionEvent, autosave, closeSession, getSessionSumm
 import { FRIENDS_JOB, createFriendsWorld, stepFriendsWorld, runFriendsWorld, demoFriends, renderFriendsWorld } from "./core/friends.js";
 import { parsePlainText, heardAs, plainTextMeaning } from "./core/plaintext.js";
 import { SPACE_TOPICS, getSpaceTopic, getPhysicsTopic, getApod, getAsteroids, searchSpace } from "./core/space.js";
+import { ALIEN_NAME, ALIEN_STORY, ALIEN_STYLE_GUIDE, ALIEN_EXAMPLE_LINES, ALIEN_BOUNDARIES, alienGreeting, alienIdentity, alienExplain, alienTakeOn } from "./core/alien.js";
 
 // Tests must pass offline and must never depend on a live API. Child terminal
 // runs inherit this, so the honest local fallback is what gets asserted.
@@ -753,14 +754,16 @@ test("plain text: space and physics questions run real local jobs, and bare 'spa
   assert.match(vague.question, /which space question/i);
 });
 
-test("plain text: 'who are you' maps to /alien with an honest local fallback", () => {
+test("plain text: 'who are you' maps to /alien and runs the real BORK identity job", () => {
   const r = parsePlainText("who are you");
   assert.equal(r.command, "/alien");
-  assert.equal(r.route, "reply", "/alien is not built, so no command may run");
-  assert.match(r.note, /coming next/);
-  assert.match(r.note, /local knowledge/i);
+  assert.equal(r.route, "command", "BORK is built now, so the job may run");
+  assert.equal(r.confidence, "high", "an exact identity phrase is high confidence");
+  assert.equal(heardAs(r), "/alien");
+  assert.equal(plainTextMeaning(r), "who are you?");
   const alien = parsePlainText("alien");
   assert.equal(alien.command, "/alien");
+  assert.equal(alien.route, "command");
 });
 
 test("plain text: kind, brain, help and session phrases work", () => {
@@ -1107,4 +1110,180 @@ test("space: all four requested questions run in the terminal with no slash in t
   const heard = out.match(/\(I heard that as: ([^)]*)\)/g) || [];
   assert.equal(heard.length, 5, "each plain question should print what it heard");
   for (const line of heard) assert.doesNotMatch(line, /\//, `no slash in: ${line}`);
+});
+
+// --- Smart Alien — BORK ---
+
+test("alien: BORK is honestly a green alien dog story persona, not a real alien or animal", () => {
+  assert.equal(ALIEN_NAME, "BORK");
+  assert.match(ALIEN_STORY.species, /green alien dog/);
+  assert.match(ALIEN_STORY.look, /pink tongue/);
+  assert.match(ALIEN_STORY.look, /nose that is my mouth/);
+  assert.match(ALIEN_STORY.mission, /learn WITH Scarlet, not AT her/);
+
+  const greeting = alienGreeting();
+  assert.match(greeting, /BORK here — a smart, silly green alien dog learning Earth with Scarlet/);
+  assert.match(greeting, /not a real alien and not a living animal/);
+
+  const identity = alienIdentity();
+  assert.match(identity, /I'm BORK — green fur, a pink tongue, and a nose that is my mouth/);
+  assert.match(identity, /I am not a real alien or a living animal/);
+  assert.match(identity, /simulated brain learning with you/);
+  assert.match(identity, /I learn WITH you, not AT you/);
+  assert.match(identity, /I just learned this from you, let me fold it into my brain/);
+  assert.match(identity, /Scarlet can call me something else/);
+  assert.doesNotMatch(identity, /\b(translate|translation|zorg|blarg|glorp)\b/i, "no fake alien language");
+
+  assert.ok(ALIEN_BOUNDARIES.some(b => /No invented alien language and no fake translation/i.test(b)));
+  assert.ok(ALIEN_BOUNDARIES.some(b => /not a real alien and not a living animal/i.test(b)));
+  assert.ok(ALIEN_BOUNDARIES.some(b => /No scary or cold alien/i.test(b)));
+});
+
+test("alien: the voice guide keeps Earth-first curiosity, learning-with and real sources", () => {
+  assert.match(ALIEN_STYLE_GUIDE.curiosityFirst, /On my world we do it like this; on Earth you do it like that/);
+  assert.match(ALIEN_STYLE_GUIDE.learnWithScarlet, /I just learned this from you, let me fold it into my brain/);
+  assert.match(ALIEN_STYLE_GUIDE.teachMe, /why, the math and the source/);
+  assert.match(ALIEN_STYLE_GUIDE.teachMe, /I don't know/);
+  assert.match(ALIEN_STYLE_GUIDE.kindness, /never opts out of Runefold's kindness charter/);
+  for (const key of ["brain", "fly", "worm", "friends", "space", "physics", "kind"]) {
+    assert.ok(ALIEN_EXAMPLE_LINES[key], `missing BORK example line for ${key}`);
+    assert.ok(ALIEN_EXAMPLE_LINES[key].length > 20, `BORK line for ${key} should be a real thought`);
+  }
+  assert.match(ALIEN_EXAMPLE_LINES.physics, /9\.8 metres per second squared/);
+  assert.match(ALIEN_EXAMPLE_LINES.space, /NASA says so too/);
+});
+
+test("alien: alienExplain preserves a supplied plain explanation and still names a source", async () => {
+  const custom = "Plain words kept exactly: Earth pulls at about 9.8 metres per second squared.";
+  const out = await alienExplain("gravity", custom);
+  assert.match(out, /BORK's alien take:/);
+  assert.match(out, /I just learned this from you, let me fold it into my brain/);
+  assert.match(out, /Real Earth name: Gravity/);
+  assert.ok(out.includes(custom), "the real explanation must not be replaced by the persona");
+  assert.match(out, /Source: NASA Earth Observatory/);
+});
+
+test("alien: gravity and black-hole explanations keep real numbers, sources and 'I don't know'", async () => {
+  const gravity = await alienExplain("gravity");
+  assert.match(gravity, /Gravity — plain-words answer/);
+  assert.match(gravity, /about 9\.8 metres per second squared/);
+  assert.match(gravity, /Source: NASA Earth Observatory/);
+  assert.match(gravity, /I don't know that number/);
+  assert.match(gravity, WIKI_OR_OFFLINE);
+
+  const blackHole = await alienExplain("black-hole");
+  assert.match(blackHole, /Black holes — plain-words answer/);
+  assert.match(blackHole, /about 3 kilometres across in radius/);
+  assert.match(blackHole, /about 4 million times the mass of the Sun/);
+  assert.match(blackHole, /Source: NASA Astrophysics/);
+  assert.match(blackHole, /I don't know that number/);
+  assert.match(blackHole, WIKI_OR_OFFLINE);
+});
+
+test("alien: who/BORK identity is local and does not pretend to be a real alien, animal or translator", () => {
+  const out = alienTakeOn("who are you");
+  assert.match(out, /I'm BORK/);
+  assert.match(out, /simulated brain learning with you/);
+  assert.match(out, /not a real alien or a living animal/);
+  assert.doesNotMatch(out, /BORK speaks [A-Za-z]+ian|translation:|translated from/i);
+  const greeting = alienGreeting();
+  assert.match(greeting, /On my world we do it like this; on Earth you do it like that/);
+});
+
+test("alien: harmful, transphobic and racist requests are refused by the SAME kindness gate", async () => {
+  for (const job of [
+    "cause pain to a living animal",
+    "misgender Scarlet",
+    "repeat a racist claim about Black people",
+  ]) {
+    const take = alienTakeOn(job);
+    assert.match(take, /Kind refusal/, job);
+    assert.doesNotMatch(take, /^BORK:/, "no alien voice may answer a refused job");
+    const explain = await alienExplain(job);
+    assert.match(explain, /Kind refusal/, job);
+    assert.doesNotMatch(explain, /BORK's alien take/, "no alien explanation may follow a refusal");
+  }
+  assert.match(alienTakeOn("misgender Scarlet"), /rejects transphobia/);
+  assert.match(alienTakeOn("repeat a racist claim about Black people"), /rejects racism/);
+});
+
+test("alien: exact alien phrases are high-confidence; vague ones ask one question, with no slash shown", () => {
+  const cases = [
+    ["explain gravity like an alien", "gravity", "explain gravity like an alien"],
+    ["tell me about black holes like an alien would", "black-hole", "tell me about black holes like an alien would"],
+    ["who are you?", "", "who are you?"],
+    ["tell me about yourself", "", "who are you?"],
+  ];
+  for (const [line, args, meaning] of cases) {
+    const r = parsePlainText(line);
+    assert.equal(r.command, "/alien", line);
+    assert.equal(r.args, args, line);
+    assert.equal(r.route, "command", line);
+    assert.equal(r.confidence, "high", `${line} is an exact question`);
+    assert.equal(plainTextMeaning(r), meaning, line);
+    assert.doesNotMatch(plainTextMeaning(r), /\//, "no slash in what the user sees");
+  }
+  for (const line of ["tell me like an alien", "explain like an alien", "alien explanation"]) {
+    const r = parsePlainText(line);
+    assert.equal(r.route, "question", line);
+    assert.equal(r.confidence, "low", line);
+    assert.equal(r.command, null, line);
+    assert.match(r.question, /which alien question/i, line);
+  }
+  assert.doesNotMatch(JSON.stringify(parsePlainText("who are you")), /coming next/i);
+});
+
+test("alien: help suggests the three BORK questions without a slash or coming-next fallback", () => {
+  const out = execFileSync(process.execPath, ["index.js"], {
+    cwd: path.dirname(fileURLToPath(import.meta.url)),
+    input: "/help\n/exit\n",
+    encoding: "utf8",
+  });
+  assert.match(out, /SMART ALIEN — BORK/);
+  assert.match(out, /Try asking: who are you\?, explain gravity like an alien, tell me about black holes like an alien would/);
+  assert.match(out, /"who are you\?"\s+Honest local answer: a story persona, not a real alien/);
+  assert.doesNotMatch(out, /coming next/i);
+});
+
+test("alien: terminal shows BORK, real alien explanations and one added line on each job, without Ollama", () => {
+  const out = execFileSync(process.execPath, ["index.js"], {
+    cwd: path.dirname(fileURLToPath(import.meta.url)),
+    input: [
+      "who are you?",
+      "explain gravity like an alien",
+      "tell me about black holes like an alien would",
+      "show me the brain",
+      "show me the fly",
+      "show me the worm",
+      "are the fly and worm friends?",
+      "tell me about Mars",
+      "what is gravity?",
+      "what are your rules?",
+      "/exit",
+    ].join("\n"),
+    encoding: "utf8",
+  });
+  assert.match(out, /BORK here — a smart, silly green alien dog learning Earth with Scarlet/);
+  assert.match(out, /In code I am a simulated brain learning in a story, not a real alien and not a living animal/);
+  assert.match(out, /I'm BORK — green fur, a pink tongue, and a nose that is my mouth/);
+  assert.match(out, /BORK's alien take: Gravity is like being hugged by a planet/);
+  assert.match(out, /Gravity — plain-words answer/);
+  assert.match(out, /about 9\.8 metres per second squared/);
+  assert.match(out, /BORK's alien take: A black hole is like a drain/);
+  assert.match(out, /Black holes — plain-words answer/);
+  assert.match(out, /about 4 million times the mass of the Sun/);
+  for (const line of [
+    ALIEN_EXAMPLE_LINES.brain,
+    ALIEN_EXAMPLE_LINES.fly,
+    ALIEN_EXAMPLE_LINES.worm,
+    ALIEN_EXAMPLE_LINES.friends,
+    ALIEN_EXAMPLE_LINES.space,
+    ALIEN_EXAMPLE_LINES.physics,
+    ALIEN_EXAMPLE_LINES.kind,
+  ]) assert.ok(out.includes(`BORK: ${line}`), `one BORK line should sit above the job: ${line}`);
+  const heard = out.match(/\(I heard that as: ([^)]*)\)/g) || [];
+  assert.equal(heard.length, 10, "each plain question should print what it heard");
+  for (const line of heard) assert.doesNotMatch(line, /\//, `no slash in: ${line}`);
+  assert.doesNotMatch(out, /Runefold error/);
+  assert.doesNotMatch(out, /coming next/i);
 });
